@@ -60,6 +60,14 @@ void main() async {
     );
     print('Firebase initialized');
 
+    // Configure Firestore for online-only mode (critical for write reliability)
+    final firestore = FirebaseFirestore.instance;
+    firestore.settings = const Settings(
+      persistenceEnabled: false,  // Disable offline persistence to prevent queue buildup
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+    await firestore.enableNetwork();  // Ensure network is enabled
+
     // Initialize notification service
     print('Initializing notifications...');
     await NotificationService().initialize();

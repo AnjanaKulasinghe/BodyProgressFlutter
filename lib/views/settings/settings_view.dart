@@ -10,6 +10,7 @@ import 'package:body_progress/providers/auth_provider.dart';
 import 'package:body_progress/providers/profile_provider.dart';
 import 'package:body_progress/providers/progress_provider.dart';
 import 'package:body_progress/services/notification_service.dart';
+import 'package:body_progress/services/connectivity_checker.dart';
 import 'package:body_progress/views/settings/app_guide_view.dart';
 import 'package:body_progress/views/profile/edit_profile_view.dart';
 import 'package:body_progress/views/achievements/achievements_view.dart';
@@ -205,6 +206,111 @@ class SettingsView extends ConsumerWidget {
                 } catch (e) {
                   print('Error in health sync setup: $e');
                   ToastManager.shared.show('Sync failed: $e', type: ToastType.error);
+                }
+              },
+            ),
+          ]),
+          const SizedBox(height: AppSpacing.md),
+
+          // Diagnostics
+          _SettingsSection(title: 'Diagnostics', children: [
+            _SettingsTile(
+              icon: Icons.wifi_outlined,
+              label: 'Check Firebase Connection',
+              sublabel: 'Test if app can reach database',
+              onTap: () async {
+                // Show loading dialog
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (dialogContext) => AlertDialog(
+                    backgroundColor: AppColors.cardBackground,
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: AppColors.brandPrimary),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Testing connection...',
+                          style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+                
+                try {
+                  final checker = ConnectivityChecker();
+                  final result = await checker.diagnoseConnectivity();
+                  
+                  // Dismiss loading dialog
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                  
+                  // Show result dialog
+                  if (context.mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        backgroundColor: AppColors.cardBackground,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        title: Row(
+                          children: [
+                            Icon(
+                              result.isConnected ? Icons.check_circle_outlined : Icons.error_outline,
+                              color: result.isConnected ? Colors.green : AppColors.errorRed,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              result.isConnected ? 'Connected' : 'Connection Issue',
+                              style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                            ),
+                          ],
+                        ),
+                        content: result.isConnected
+                            ? const Text(
+                                'Firebase connection is working correctly!',
+                                style: TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
+                              )
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Issue: ${result.issue}',
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Nunito',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    result.suggestion ?? '',
+                                    style: const TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
+                                  ),
+                                ],
+                              ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: const Text('OK', style: TextStyle(color: AppColors.brandPrimary)),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  // Dismiss loading dialog
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                  
+                  ToastManager.shared.show(
+                    'Connectivity test failed: $e',
+                    type: ToastType.error,
+                  );
                 }
               },
             ),

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:body_progress/models/user_profile.dart';
 import 'package:body_progress/models/body_stats.dart';
 import 'package:body_progress/models/photo_metadata.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 /// Manages all Firestore data access — users, bodyStats, photoMetadata collections.
 class FirestoreService {
@@ -12,40 +13,134 @@ class FirestoreService {
   CollectionReference get _bodyStats => _db.collection('bodyStats');
   CollectionReference get _photos    => _db.collection('photoMetadata');
 
+  // ── Diagnostics ───────────────────────────────────────────────────────────
+
+  /// Test Firestore connectivity by writing and reading a test document
+  Future<bool> testFirestoreConnectivity() async {
+    try {
+      final testRef = _db.collection('_diagnostics').doc('connectivity_test');
+      
+      // Test write
+      final testData = {
+        'timestamp': FieldValue.serverTimestamp(),
+        'test': 'connectivity',
+      };
+      
+      await testRef.set(testData).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          throw TimeoutException('Test write timed out');
+        },
+      );
+      
+      // Test read
+      final doc = await testRef.get().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          throw TimeoutException('Test read timed out');
+        },
+      );
+      
+      if (!doc.exists) {
+        return false;
+      }
+      
+      // Clean up
+      await testRef.delete();
+      
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Retry a Firestore operation with exponential backoff for network issues
+  Future<T> _retryOperation<T>({
+    required Future<T> Function() operation,
+    required String operationName,
+    int maxRetries = 3,
+  }) async {
+    int retryCount = 0;
+    
+    while (true) {
+      try {
+        return await operation();
+      } on FirebaseException catch (e) {
+        final isNetworkError = e.code == 'unavailable' || 
+                              e.code == 'deadline-exceeded' ||
+                              e.code == 'cancelled';
+        
+        if (!isNetworkError || retryCount >= maxRetries) {
+          rethrow;
+        }
+        
+        retryCount++;
+        final delayMs = (100 * (1 << retryCount)); // 200ms, 400ms, 800ms
+        await Future.delayed(Duration(milliseconds: delayMs));
+      } catch (e) {
+        rethrow;
+      }
+    }
+  }
+
   // ── User Profile ──────────────────────────────────────────────────────────
 
   Future<void> saveUserProfile(UserProfile profile) async {
-    final ref = _users.doc(profile.userId);
-    await ref.set(profile.toFirestore());
+    try {
+      final ref = _users.doc(profile.userId);
+      await ref.set(profile.toFirestore()).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('User profile save timed out');
+        },
+      );
+    } catch (e) {
+      rethrow;
+    }
   }
 
   Future<UserProfile?> getUserProfile(String userId) async {
     try {
-      final doc = await _users.doc(userId).get();
-      if (!doc.exists) return null;
-      return UserProfile.fromFirestore(doc);
+      return await _retryOperation(
+        operation: () async {
+          final doc = await _users.doc(userId).get();
+          if (!doc.exists) return null;
+          return UserProfile.fromFirestore(doc);
+        },
+        operationName: 'getUserProfile',
+      );
     } catch (e) {
-      // If document doesn't exist or there's a permission error, return null
-      print('getUserProfile error: $e');
       return null;
     }
   }
 
   Future<void> updateUserProfile(UserProfile profile) async {
-    final ref = _users.doc(profile.userId);
-    await ref.set({
-      ...profile.toFirestore(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      final ref = _users.doc(profile.userId);
+      await ref.set({
+        ...profile.toFirestore(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('User profile update timed out');
+        },
+      );
+    } catch (e) {
+      rethrow;
+    }
   }
 
   Future<bool> hasUserProfile(String userId) async {
     try {
-      final doc = await _users.doc(userId).get();
-      return doc.exists;
+      return await _retryOperation(
+        operation: () async {
+          final doc = await _users.doc(userId).get();
+          return doc.exists;
+        },
+        operationName: 'hasUserProfile',
+      );
     } catch (e) {
-      // If there's any error checking profile existence, return false
-      print('hasUserProfile error: $e');
       return false;
     }
   }
@@ -56,8 +151,19 @@ class FirestoreService {
       _bodyStats.add(stats.toFirestore());
 
   Future<void> saveOrUpdateBodyStats(BodyStats stats) async {
-    final docId = '${stats.userId}_${stats.date.millisecondsSinceEpoch}';
-    await _bodyStats.doc(docId).set(stats.toFirestore());
+    try {
+      final docId = '${stats.userId}_${stats.date.millisecondsSinceEpoch}';
+      final data = stats.toFirestore();
+      
+      await _bodyStats.doc(docId).set(data).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Firestore write timed out after 10 seconds for doc: $docId');
+        },
+      );
+    } catch (e) {
+      rethrow;
+    }
   }
 
   Future<List<BodyStats>> getBodyStats(String userId, {int limit = 100}) async {
@@ -98,6 +204,10 @@ class FirestoreService {
   Future<void> deleteBodyStats(String id) => _bodyStats.doc(id).delete();
 
   Future<void> batchSaveBodyStats(List<BodyStats> statsList) async {
+    if (statsList.isEmpty) {
+      return;
+    }
+    
     // Use smaller batches for faster, more reliable commits
     const int batchSize = 50;
     
@@ -105,6 +215,8 @@ class FirestoreService {
       final batch = _db.batch();
       final end = (i + batchSize < statsList.length) ? i + batchSize : statsList.length;
       final chunk = statsList.sublist(i, end);
+      final chunkNum = (i ~/ batchSize) + 1;
+      final totalChunks = ((statsList.length - 1) ~/ batchSize) + 1;
       
       for (final stats in chunk) {
         final docId = '${stats.userId}_${stats.date.millisecondsSinceEpoch}';
@@ -115,16 +227,14 @@ class FirestoreService {
         );
       }
       
-      // Add timeout back with generous 60 second limit for slow networks
       try {
         await batch.commit().timeout(
-          const Duration(seconds: 60),
+          const Duration(seconds: 30),
           onTimeout: () {
-            throw TimeoutException('Firestore batch commit timed out after 60 seconds');
+            throw TimeoutException('Batch commit timed out after 30 seconds (chunk $chunkNum/$totalChunks)');
           },
         );
       } catch (e) {
-        print('Batch write error for chunk ${(i ~/ batchSize) + 1}: $e');
         rethrow;
       }
     }

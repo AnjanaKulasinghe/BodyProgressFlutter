@@ -135,10 +135,34 @@ class _PhotoTile extends ConsumerWidget {
                 child: const Center(child: CircularProgressIndicator(
                   color: AppColors.brandPrimary, strokeWidth: 2)),
               ),
-              errorWidget: (_, __, ___) => Container(
-                color: AppColors.darkCardBackground,
-                child: const Icon(Icons.broken_image, color: AppColors.textTertiary),
-              ),
+              errorWidget: (context, url, error) {
+                // Log the error to help debug
+                print('❌ Failed to load image: $url');
+                print('❌ Error: $error');
+                
+                // Check if it's a network error
+                final isNetworkError = error.toString().contains('SocketException') ||
+                                      error.toString().contains('Failed host lookup');
+                
+                return Container(
+                  color: AppColors.darkCardBackground,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        isNetworkError ? Icons.wifi_off : Icons.broken_image, 
+                        color: AppColors.textTertiary, 
+                        size: 32
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isNetworkError ? 'No connection' : 'Load failed',
+                        style: TextStyle(color: AppColors.textTertiary, fontSize: 9),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             Positioned(
               bottom: 0, left: 0, right: 0,
@@ -233,8 +257,38 @@ class _PhotoDetailPage extends StatelessWidget {
                   fit: BoxFit.contain,
                   placeholder: (_, __) => const Center(
                     child: CircularProgressIndicator(color: AppColors.brandPrimary)),
-                  errorWidget: (_, __, ___) => const Center(
-                    child: Icon(Icons.broken_image, color: Colors.white54, size: 64)),
+                  errorWidget: (context, url, error) {
+                    print('❌ Failed to load full image: $url');
+                    print('❌ Error: $error');
+                    
+                    final isNetworkError = error.toString().contains('SocketException') ||
+                                          error.toString().contains('Failed host lookup');
+                    
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            isNetworkError ? Icons.wifi_off : Icons.broken_image, 
+                            color: Colors.white54, 
+                            size: 64
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            isNetworkError ? 'No Network Connection' : 'Image load failed',
+                            style: TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            isNetworkError 
+                              ? 'Check WiFi/Cellular or disable VPN'
+                              : 'Check Firebase Storage Rules',
+                            style: TextStyle(color: Colors.white54, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
             ),

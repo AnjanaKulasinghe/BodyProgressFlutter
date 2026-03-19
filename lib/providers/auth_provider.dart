@@ -208,9 +208,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> deleteAccount() async {
-    final uid = state.user?.uid;
-    if (uid != null) await _firestoreService.batchDeleteUserData(uid);
-    await _authService.deleteAccount();
+    try {
+      state = state.copyWith(isLoading: true);
+      
+      final uid = state.user?.uid;
+      if (uid == null) {
+        throw Exception('No authenticated user to delete');
+      }
+      
+      // Delete all user data from Firestore
+      await _firestoreService.batchDeleteUserData(uid);
+      
+      // Delete the Firebase Auth account
+      await _authService.deleteAccount();
+      
+      state = state.copyWith(isLoading: false, clearError: true);
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+      _setError('Failed to delete account: ${e.toString()}');
+      rethrow;
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

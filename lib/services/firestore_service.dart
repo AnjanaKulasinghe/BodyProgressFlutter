@@ -312,15 +312,19 @@ class FirestoreService {
   // ── Batch Delete (account deletion) ─────────────────────────────────────
 
   Future<void> batchDeleteUserData(String userId) async {
-    // Delete body stats
+    // Delete body stats and user profile
     final statsDocs = await _bodyStats.where('userId', isEqualTo: userId).get();
-    final photosDocs = await _photos.where('userId', isEqualTo: userId).get();
     final userDocs = await _users.where('userId', isEqualTo: userId).get();
 
     final batch = _db.batch();
     for (final d in statsDocs.docs)  batch.delete(d.reference);
-    for (final d in photosDocs.docs) batch.delete(d.reference);
     for (final d in userDocs.docs)   batch.delete(d.reference);
-    await batch.commit();
+    
+    await batch.commit().timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        throw TimeoutException('Failed to delete user data - operation timed out');
+      },
+    );
   }
 }

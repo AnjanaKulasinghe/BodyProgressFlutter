@@ -393,18 +393,96 @@ class SettingsView extends ConsumerWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete Account', style: TextStyle(color: AppColors.errorRed, fontFamily: 'Nunito')),
         content: const Text(
-            'This will permanently delete all your data including photos, measurements, and profile. This cannot be undone.',
+            'This will permanently delete your account and all associated data including measurements and profile information. This action cannot be undone.',
             style: TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary))),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              // Router will automatically redirect to /auth when the auth stream fires
-              await ref.read(authProvider.notifier).deleteAccount();
+              
+              // Show loading dialog
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                useRootNavigator: true,
+                builder: (loadingContext) => PopScope(
+                  canPop: false,
+                  child: AlertDialog(
+                    backgroundColor: AppColors.cardBackground,
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: AppColors.errorRed),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Deleting account...',
+                          style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+              
+              try {
+                await ref.read(authProvider.notifier).deleteAccount();
+                
+                // Dismiss loading dialog
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+                
+                // Show success message
+                if (context.mounted) {
+                  ToastManager.shared.show(
+                    'Account deleted successfully',
+                    type: ToastType.success,
+                  );
+                }
+                
+                // Router will automatically redirect to /auth
+              } catch (e) {
+                // Dismiss loading dialog
+                if (context.mounted) {
+                  try {
+                    Navigator.of(context, rootNavigator: true).pop();
+                  } catch (_) {}
+                }
+                
+                // Show error
+                if (context.mounted) {
+                  showDialog(
+                    context: context,
+                    builder: (errorContext) => AlertDialog(
+                      backgroundColor: AppColors.cardBackground,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      title: const Row(
+                        children: [
+                          Icon(Icons.error_outline, color: AppColors.errorRed),
+                          SizedBox(width: 8),
+                          Text('Delete Failed', style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito')),
+                        ],
+                      ),
+                      content: Text(
+                        'Failed to delete account: ${e.toString().replaceAll('Exception: ', '')}',
+                        style: const TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(errorContext),
+                          child: const Text('OK', style: TextStyle(color: AppColors.brandPrimary)),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+              }
             },
-            child: const Text('Delete', style: TextStyle(color: AppColors.errorRed)),
+            child: const Text('Delete Permanently', style: TextStyle(color: AppColors.errorRed, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

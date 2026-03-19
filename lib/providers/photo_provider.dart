@@ -208,6 +208,11 @@ class PhotoNotifier extends StateNotifier<PhotoState> {
         thumbnailUrl: result.thumbnailUrl,
       );
 
+      // Debug: Verify URLs are not empty
+      if (finalMetadata.storageUrl.isEmpty) {
+        throw Exception('Upload failed: Storage URL is empty');
+      }
+
       final ref = await _firestoreService.savePhotoMetadata(finalMetadata);
       final savedMetadata = finalMetadata.copyWith(id: ref.id);
 

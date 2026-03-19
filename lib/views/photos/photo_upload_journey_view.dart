@@ -42,21 +42,21 @@ class _PhotoUploadJourneyViewState extends ConsumerState<PhotoUploadJourneyView>
     ),
     _PhotoStep(
       type: PhotoType.front,
-      title: 'Front View',
+      title: 'Front View (Optional)',
       description: 'Stand straight, facing forward',
       sampleImage: 'assets/images/samples/sample-front.png',
       instruction: 'Position yourself directly facing the camera with arms at your sides',
     ),
     _PhotoStep(
       type: PhotoType.side,
-      title: 'Side View',
+      title: 'Side View (Optional)',
       description: 'Turn 90° to show your profile',
       sampleImage: 'assets/images/samples/sample-side.png',
       instruction: 'Stand sideways to the camera with good posture',
     ),
     _PhotoStep(
       type: PhotoType.back,
-      title: 'Back View',
+      title: 'Back View (Optional)',
       description: 'Turn around to show your back',
       sampleImage: 'assets/images/samples/sample-back.png',
       instruction: 'Face away from the camera with arms at your sides',
@@ -101,10 +101,25 @@ class _PhotoUploadJourneyViewState extends ConsumerState<PhotoUploadJourneyView>
   }
 
   bool _canProceedFromStep(int step) {
-    if (step == 0) return true; // Date selection always allows proceed
-    final photoType = _steps[step].type;
-    if (photoType == PhotoType.custom) return true; // Custom is optional
-    return _photos[photoType] != null;
+    // All steps allow proceeding (all photo angles are optional)
+    return true;
+  }
+
+  String _getButtonLabel(int step) {
+    if (step == _steps.length - 1) {
+      // Final step - check if we have at least one photo
+      final hasPhotos = _photos.values.any((photo) => photo != null);
+      return hasPhotos ? 'Upload Photos' : 'Need at least 1 photo';
+    }
+    
+    // Photo steps - show Skip or Continue based on whether photo is captured
+    if (step > 0) {
+      final photoType = _steps[step].type;
+      final hasPhoto = _photos[photoType] != null;
+      return hasPhoto ? 'Continue' : 'Skip';
+    }
+    
+    return 'Continue';
   }
 
   Future<void> _uploadPhotos() async {
@@ -311,8 +326,11 @@ class _PhotoUploadJourneyViewState extends ConsumerState<PhotoUploadJourneyView>
                   Expanded(
                     flex: _currentStep == 0 ? 1 : 2,
                     child: LoadingButton(
-                      onPressed: _canProceedFromStep(_currentStep) ? _nextStep : null,
-                      label: _currentStep == _steps.length - 1 ? 'Upload Photos' : 'Continue',
+                      onPressed: _canProceedFromStep(_currentStep) && 
+                               (_currentStep != _steps.length - 1 || _photos.values.any((photo) => photo != null))
+                          ? _nextStep
+                          : null,
+                      label: _getButtonLabel(_currentStep),
                       isLoading: false,
                     ),
                   ),
@@ -670,8 +688,8 @@ class _PhotoCaptureStep extends StatelessWidget {
                       ),
                     ),
                   
-                  // Optional badge (top-left)
-                  if (photo == null && step.type == PhotoType.custom)
+                  // Optional badge (top-left) - shown for all photo steps when no photo captured
+                  if (photo == null)
                     Positioned(
                       top: 16,
                       left: 16,

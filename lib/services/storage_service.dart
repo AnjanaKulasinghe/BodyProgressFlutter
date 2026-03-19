@@ -26,31 +26,40 @@ class StorageService {
     File imageFile, {
     required PhotoMetadata metadata,
   }) async {
-    // Compress original
-    final compressed = await _compressImage(imageFile);
-    if (compressed.lengthInBytes > _maxFileSizeBytes) {
-      throw Exception('Image exceeds 5 MB limit after compression');
-    }
-
-    // Upload original
-    final imageRef = _storage.ref(metadata.storagePath);
-    await imageRef.putData(compressed,
-        SettableMetadata(contentType: 'image/jpeg'));
-    final imageUrl = await imageRef.getDownloadURL();
-
-    // Upload thumbnail
-    String? thumbnailUrl;
     try {
-      final thumbData = await _createThumbnail(compressed);
-      final thumbRef = _storage.ref(metadata.thumbnailStoragePath);
-      await thumbRef.putData(thumbData,
-          SettableMetadata(contentType: 'image/jpeg'));
-      thumbnailUrl = await thumbRef.getDownloadURL();
-    } catch (_) {
-      // Thumbnail upload failure is non-fatal
-    }
+      // Compress original
+      final compressed = await _compressImage(imageFile);
+      if (compressed.lengthInBytes > _maxFileSizeBytes) {
+        throw Exception('Image exceeds 5 MB limit after compression');
+      }
 
-    return UploadResult(imageUrl: imageUrl, thumbnailUrl: thumbnailUrl);
+      // Upload original
+      final imageRef = _storage.ref(metadata.storagePath);
+      await imageRef.putData(compressed,
+          SettableMetadata(contentType: 'image/jpeg'));
+      final imageUrl = await imageRef.getDownloadURL();
+
+      if (imageUrl.isEmpty) {
+        throw Exception('Failed to get download URL for uploaded image');
+      }
+
+      // Upload thumbnail
+      String? thumbnailUrl;
+      try {
+        final thumbData = await _createThumbnail(compressed);
+        final thumbRef = _storage.ref(metadata.thumbnailStoragePath);
+        await thumbRef.putData(thumbData,
+            SettableMetadata(contentType: 'image/jpeg'));
+        thumbnailUrl = await thumbRef.getDownloadURL();
+      } catch (e) {
+        // Thumbnail upload failure is non-fatal, use main image URL
+        thumbnailUrl = imageUrl;
+      }
+
+      return UploadResult(imageUrl: imageUrl, thumbnailUrl: thumbnailUrl);
+    } catch (e) {
+      throw Exception('Photo upload failed: ${e.toString()}');
+    }
   }
 
   // ── Download / Caching ────────────────────────────────────────────────────

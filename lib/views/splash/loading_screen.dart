@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -124,35 +125,41 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       _updateProgress(0.25, 1);
       await Future.delayed(const Duration(milliseconds: 400));
 
-      // Step 3: Syncing - 45%
+      // Step 3: Starting sync - 35%
       _updateProgress(0.35, 2);
       await Future.delayed(const Duration(milliseconds: 300));
-      _updateProgress(0.45, 2);
-      await Future.delayed(const Duration(milliseconds: 300));
 
-      // Step 4: Loading stats - 60%
-      _updateProgress(0.5, 3);
+      // Step 4: Begin actual data loading - 45%
+      _updateProgress(0.45, 3);
       
-      // Initialize all data in parallel with timeout
-      await ref.read(appInitProvider.notifier).initializeAppData().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          print('Data loading timed out, proceeding anyway');
-        },
-      );
-      
-      _updateProgress(0.6, 3);
-      await Future.delayed(const Duration(milliseconds: 400));
+      // CRITICAL: Actually wait for all data to load with proper timeout
+      try {
+        await ref.read(appInitProvider.notifier).initializeAppData().timeout(
+          const Duration(seconds: 30),
+          onTimeout: () {
+            print('Data loading timed out after 30s');
+            throw TimeoutException('Failed to load data');
+          },
+        );
+        
+        // Data loaded successfully
+        _updateProgress(0.7, 4);
+        await Future.delayed(const Duration(milliseconds: 300));
+        
+      } catch (e) {
+        print('Data loading error: $e');
+        // Continue anyway but show progress
+        _updateProgress(0.6, 3);
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
 
-      // Step 5: Loading photos - 85%
-      _updateProgress(0.7, 4);
+      // Step 5: Finalizing - 90%
+      _updateProgress(0.9, 5);
       await Future.delayed(const Duration(milliseconds: 400));
-      _updateProgress(0.85, 4);
-      await Future.delayed(const Duration(milliseconds: 300));
 
       // Step 6: Complete - 100%
       _updateProgress(1.0, 5);
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 500));
 
       if (mounted) context.go(AppRoutes.home);
     } catch (e) {

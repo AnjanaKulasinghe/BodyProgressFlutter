@@ -24,10 +24,8 @@ class _PhotosViewState extends ConsumerState<PhotosView>
   void initState() {
     super.initState();
     _tabController = TabController(length: _types.length, vsync: this);
-    // Load photos after the first frame so the provider is ready
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(photoProvider.notifier).loadPhotos();
-    });
+    // Photos are already loaded by the loading screen via appInitProvider
+    // No need to reload on every visit - data is cached in photoProvider
   }
 
   @override
@@ -74,15 +72,21 @@ class _PhotosViewState extends ConsumerState<PhotosView>
       ),
       body: photoState.isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.brandPrimary))
-          : TabBarView(
-              controller: _tabController,
-              children: _types.map((type) {
-                // Use photoState.photos directly (already watched) so grid rebuilds on load
-                final photos = photoState.photos.where((p) => p.photoType == type).toList();
-                return photos.isEmpty
-                    ? _EmptyPhotoState(type: type)
-                    : _PhotoGrid(photos: photos);
-              }).toList(),
+          : RefreshIndicator(
+              color: AppColors.brandPrimary,
+              onRefresh: () async {
+                await ref.read(photoProvider.notifier).loadPhotos();
+              },
+              child: TabBarView(
+                controller: _tabController,
+                children: _types.map((type) {
+                  // Use photoState.photos directly (already watched) so grid rebuilds on load
+                  final photos = photoState.photos.where((p) => p.photoType == type).toList();
+                  return photos.isEmpty
+                      ? _EmptyPhotoState(type: type)
+                      : _PhotoGrid(photos: photos);
+                }).toList(),
+              ),
             ),
     );
   }
@@ -122,34 +126,19 @@ class _PhotoTile extends ConsumerWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            FutureBuilder<String>(
-              future: StorageService().getFreshThumbnailUrl(photo),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Container(
-                    color: AppColors.darkCardBackground,
-                    child: const Center(child: CircularProgressIndicator(
-                      color: AppColors.brandPrimary, strokeWidth: 2)),
-                  );
-                }
-                if (snapshot.hasError || !snapshot.hasData) {
-                  return Container(
-                    color: AppColors.darkCardBackground,
-                    child: const Icon(Icons.broken_image, color: AppColors.textTertiary),
-                  );
-                }
-                return CachedNetworkImage(
-                  imageUrl: snapshot.data!,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => Container(
-                    color: AppColors.darkCardBackground,
-                  ),
-                  errorWidget: (_, __, ___) => Container(
-                    color: AppColors.darkCardBackground,
-                    child: const Icon(Icons.broken_image, color: AppColors.textTertiary),
-                  ),
-                );
-              },
+            // Use cached URL from Firestore instead of fetching fresh URL every time
+            CachedNetworkImage(
+              imageUrl: photo.thumbnailUrl ?? photo.storageUrl,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => Container(
+                color: AppColors.darkCardBackground,
+                child: const Center(child: CircularProgressIndicator(
+                  color: AppColors.brandPrimary, strokeWidth: 2)),
+              ),
+              errorWidget: (_, __, ___) => Container(
+                color: AppColors.darkCardBackground,
+                child: const Icon(Icons.broken_image, color: AppColors.textTertiary),
+              ),
             ),
             Positioned(
               bottom: 0, left: 0, right: 0,
@@ -238,26 +227,14 @@ class _PhotoDetailPage extends StatelessWidget {
               minScale: 0.8,
               maxScale: 4.0,
               child: Center(
-                child: FutureBuilder<String>(
-                  future: StorageService().getFreshDownloadUrl(photo.storagePath),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                        child: CircularProgressIndicator(color: AppColors.brandPrimary));
-                    }
-                    if (snapshot.hasError || !snapshot.hasData) {
-                      return const Center(
-                        child: Icon(Icons.broken_image, color: Colors.white54, size: 64));
-                    }
-                    return CachedNetworkImage(
-                      imageUrl: snapshot.data!,
-                      fit: BoxFit.contain,
-                      placeholder: (_, __) => const Center(
-                        child: CircularProgressIndicator(color: AppColors.brandPrimary)),
-                      errorWidget: (_, __, ___) => const Center(
-                        child: Icon(Icons.broken_image, color: Colors.white54, size: 64)),
-                    );
-                  },
+                // Use cached full-resolution URL from Firestore
+                child: CachedNetworkImage(
+                  imageUrl: photo.storageUrl,
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) => const Center(
+                    child: CircularProgressIndicator(color: AppColors.brandPrimary)),
+                  errorWidget: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image, color: Colors.white54, size: 64)),
                 ),
               ),
             ),

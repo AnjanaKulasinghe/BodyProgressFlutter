@@ -49,7 +49,7 @@ class UserProfile {
       userId: d['userId'] as String,
       email: d['email'] as String,
       name: d['name'] as String,
-      dateOfBirth: (d['dateOfBirth'] as Timestamp).toDate(),
+      dateOfBirth: (d['dateOfBirth'] as Timestamp?)?.toDate() ?? DateTime(1990, 1, 1),
       gender: Gender.fromString(d['gender'] as String? ?? 'male'),
       height: (d['height'] as num?)?.toDouble(),
       activityLevel: ActivityLevel.fromString(d['activityLevel'] as String? ?? 'moderatelyActive'),
@@ -59,8 +59,8 @@ class UserProfile {
       bmi: (d['bmi'] as num?)?.toDouble(),
       bodyFatPercentage: (d['bodyFatPercentage'] as num?)?.toDouble(),
       waistCircumference: (d['waistCircumference'] as num?)?.toDouble(),
-      createdAt: (d['createdAt'] as Timestamp).toDate(),
-      updatedAt: (d['updatedAt'] as Timestamp).toDate(),
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt: (d['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       lastHealthSync: (d['lastHealthSync'] as Timestamp?)?.toDate(),
     );
   }

@@ -42,7 +42,7 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
     
     try {
       final user = _ref.read(authProvider).user;
-      if (user == null) {
+      if (user == null || user.uid.isEmpty) {
         state = state.copyWith(isLoading: false);
         return;
       }
@@ -52,16 +52,21 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
         _ref.read(profileProvider.notifier).loadProfile(),
         _ref.read(progressProvider.notifier).loadAndCacheBodyStats().then((_) {}),
         _ref.read(photoProvider.notifier).loadPhotos(),
-      ]);
+      ], eagerError: false); // Continue even if some operations fail
       
-      // Recalculate achievements after data is loaded (ensures consistency)
-      await _ref.read(achievementProvider.notifier).recalculateAllAchievements();
+      // Only recalculate achievements if profile exists
+      final hasProfile = _ref.read(profileProvider).profile != null;
+      if (hasProfile) {
+        await _ref.read(achievementProvider.notifier).recalculateAllAchievements();
+      }
 
       state = state.copyWith(isInitialized: true, isLoading: false);
     } catch (e) {
+      print('App initialization error: $e');
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
+        isInitialized: true, // Mark as initialized even on error to prevent retrying
       );
     }
   }

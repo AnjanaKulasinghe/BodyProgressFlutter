@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,7 @@ import 'package:body_progress/core/router.dart';
 import 'package:body_progress/core/toast_manager.dart';
 import 'package:body_progress/providers/auth_provider.dart';
 import 'package:body_progress/providers/profile_provider.dart';
+import 'package:body_progress/providers/progress_provider.dart';
 import 'package:body_progress/services/notification_service.dart';
 import 'package:body_progress/views/settings/app_guide_view.dart';
 import 'package:body_progress/views/profile/edit_profile_view.dart';
@@ -104,8 +107,105 @@ class SettingsView extends ConsumerWidget {
               icon: Icons.health_and_safety_outlined,
               label: 'Sync Health Data',
               sublabel: 'Import from HealthKit / Google Health Connect',
-              onTap: () {
-                ToastManager.shared.show('Syncing from Progress tab…', type: ToastType.info);
+              onTap: () async {
+                try {
+                  final healthService = ref.read(progressProvider.notifier).healthService;
+                  
+                  // Check permissions
+                  final hasPermission = await healthService.hasPermissions();
+                  
+                  if (!hasPermission) {
+                    ToastManager.shared.show(
+                      'Requesting health data access...',
+                      type: ToastType.info,
+                    );
+                    
+                    final granted = await healthService.requestAuthorization();
+                    
+                    if (!granted) {
+                      final settingsPath = Platform.isIOS
+                          ? 'Settings → Privacy & Security → Health → Body Progress'
+                          : 'Settings → Apps → Body Progress → Permissions → Health Connect';
+                      ToastManager.shared.show(
+                        'Health access denied. Open $settingsPath to enable access.',
+                        type: ToastType.error,
+                      );
+                      return;
+                    }
+                    
+                    ToastManager.shared.show(
+                      'Health access granted! Starting sync...',
+                      type: ToastType.success,
+                    );
+                  }
+                  
+                  // Show loading dialog
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    useRootNavigator: true,
+                    builder: (dialogContext) => PopScope(
+                      canPop: false,
+                      child: AlertDialog(
+                        backgroundColor: AppColors.cardBackground,
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(color: AppColors.brandPrimary),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Syncing health data...',
+                              style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                  
+                  try {
+                    // Perform sync
+                    final result = await ref.read(progressProvider.notifier).syncWithHealth();
+                    
+                    // Safely dismiss loading dialog using root navigator
+                    if (context.mounted) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                    }
+                    
+                    // Show result
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) {
+                        ToastManager.shared.show(
+                          result.errorMessage ?? 'Synced ${result.uploadedCount} entries',
+                          type: result.errorMessage != null ? ToastType.error : ToastType.success,
+                        );
+                      }
+                    });
+                  } catch (e) {
+                    print('Error syncing health data: $e');
+                    // Ensure dialog is dismissed on error using root navigator
+                    if (context.mounted) {
+                      try {
+                        Navigator.of(context, rootNavigator: true).pop();
+                      } catch (_) {
+                        // Dialog might already be gone
+                      }
+                    }
+                    
+                    // Show error toast
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) {
+                        ToastManager.shared.show(
+                          'Sync failed: ${e.toString()}',
+                          type: ToastType.error,
+                        );
+                      }
+                    });
+                  }
+                } catch (e) {
+                  print('Error in health sync setup: $e');
+                  ToastManager.shared.show('Sync failed: $e', type: ToastType.error);
+                }
               },
             ),
           ]),

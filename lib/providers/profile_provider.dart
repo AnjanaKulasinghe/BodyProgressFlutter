@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:body_progress/models/user_profile.dart';
+import 'package:body_progress/models/body_stats.dart';
 import 'package:body_progress/services/firestore_service.dart';
 import 'package:body_progress/providers/auth_provider.dart';
 
@@ -108,20 +109,22 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
   Future<void> loadProfile() async {
     final authState = _ref.read(authProvider);
     final uid = authState.user?.uid;
-    if (uid == null) return;
+    final user = authState.user;
+    if (uid == null || uid.isEmpty) return;
 
-    final hasProfile = await _firestoreService.hasUserProfile(uid);
-    if (!hasProfile) {
-      state = state.copyWith(
-        isNewProfile: true,
-        name: authState.user?.displayName ?? '',
-        email: authState.user?.email ?? '',
-      );
-      return;
-    }
-
-    state = state.copyWith(isLoading: true);
     try {
+      final hasProfile = await _firestoreService.hasUserProfile(uid);
+      if (!hasProfile) {
+        // Pre-populate from Firebase Auth (includes Sign in with Apple data)
+        state = state.copyWith(
+          isNewProfile: true,
+          name: user?.displayName ?? '',
+          email: user?.email ?? '',
+        );
+        return;
+      }
+
+      state = state.copyWith(isLoading: true);
       final profile = await _firestoreService.getUserProfile(uid);
       if (profile != null) {
         state = state.copyWith(
@@ -141,7 +144,13 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
         state = state.copyWith(isLoading: false, isNewProfile: true);
       }
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString(), showingAlert: true);
+      print('loadProfile error: $e');
+      state = state.copyWith(
+        isLoading: false, 
+        errorMessage: 'Error loading profile: ${e.toString()}', 
+        showingAlert: false, // Don't show alert during background load
+        isNewProfile: true,
+      );
     }
   }
 
@@ -149,6 +158,23 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
   Future<void> loadCurrentProfileForEdit() async {
     await loadProfile();
     state = state.copyWith(isEditing: true);
+  }
+
+  /// Load existing profile data into edit state without refetching
+  void loadProfileIntoEditState(UserProfile profile) {
+    state = state.copyWith(
+      profile: profile,
+      isEditing: true,
+      name: profile.name,
+      email: profile.email,
+      dateOfBirth: profile.dateOfBirth,
+      gender: profile.gender,
+      height: profile.height?.toStringAsFixed(1) ?? '',
+      activityLevel: profile.activityLevel,
+      fitnessGoal: profile.fitnessGoal,
+      weight: profile.weight?.toStringAsFixed(1) ?? '',
+      targetWeight: profile.targetWeight?.toStringAsFixed(1) ?? '',
+    );
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -162,7 +188,13 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
 
     final authState = _ref.read(authProvider);
     final uid = authState.user?.uid;
-    if (uid == null) return false;
+    if (uid == null || uid.isEmpty) {
+      state = state.copyWith(
+        errorMessage: 'User not authenticated', 
+        showingAlert: true,
+      );
+      return false;
+    }
 
     state = state.copyWith(isLoading: true);
     try {
@@ -183,12 +215,34 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
       );
 
       await _firestoreService.updateUserProfile(profile);
+      
+      // Create initial body stats entry from profile data (only for new profiles)
+      if (state.isNewProfile && profile.weight != null && profile.height != null) {
+        try {
+          final bmi = profile.weight! / (profile.height! / 100 * profile.height! / 100);
+          final initialStats = BodyStats(
+            userId: uid,
+            date: DateTime.now(),
+            weight: profile.weight!,
+            bmi: bmi,
+            notes: 'Initial measurement from profile setup',
+            source: DataSource.manual,
+            createdAt: DateTime.now(),
+          );
+          await _firestoreService.saveBodyStats(initialStats);
+          print('Created initial body stats entry with BMI: ${bmi.toStringAsFixed(1)}');
+        } catch (e) {
+          print('Error creating initial stats: $e');
+          // Non-fatal - profile still saved successfully
+        }
+      }
+      
       state = state.copyWith(
         profile: profile, isLoading: false, isEditing: false, clearError: true);
       return true;
     } catch (e) {
       state = state.copyWith(
-          isLoading: false, errorMessage: e.toString(), showingAlert: true);
+          isLoading: false, errorMessage: 'Error saving profile: ${e.toString()}', showingAlert: true);
       return false;
     }
   }
@@ -200,18 +254,30 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
     if (state.email.trim().isEmpty) return 'Email is required';
     if (!RegExp(r'^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$')
         .hasMatch(state.email)) return 'Enter a valid email';
+    
+    // Weight validation
     if (state.weight.isNotEmpty) {
       final w = double.tryParse(state.weight);
-      if (w == null || w <= 0 || w >= 500) return 'Enter a valid weight';
+      if (w == null || w <= 0 || w >= 500) return 'Enter a valid weight (1-500 kg)';
+    } else if (state.isNewProfile) {
+      // Only require weight for new profiles (initial stats entry)
+      return 'Current weight is required';
     }
-    if (state.targetWeight.isNotEmpty) {
-      final tw = double.tryParse(state.targetWeight);
-      if (tw == null || tw <= 0 || tw >= 500) return 'Enter a valid target weight';
-    }
+    
+    // Target weight is mandatory for milestone calculations
+    if (state.targetWeight.isEmpty) return 'Target weight is required';
+    final tw = double.tryParse(state.targetWeight);
+    if (tw == null || tw <= 0 || tw >= 500) return 'Enter a valid target weight (1-500 kg)';
+    
+    // Height validation
     if (state.height.isNotEmpty) {
       final h = double.tryParse(state.height);
-      if (h == null || h <= 0 || h >= 250) return 'Enter a valid height';
+      if (h == null || h <= 0 || h >= 250) return 'Enter a valid height (1-250 cm)';
+    } else if (state.isNewProfile) {
+      // Only require height for new profiles (BMI calculation)
+      return 'Height is required';
     }
+    
     return null;
   }
 }

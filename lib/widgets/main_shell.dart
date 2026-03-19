@@ -6,36 +6,31 @@ import 'package:body_progress/core/router.dart';
 
 /// The main tab bar shell — equivalent to iOS MainTabView.
 /// Wraps all 5 tabs: Home, Photos, Stats, Progress, Settings.
-class MainShell extends StatefulWidget {
-  final Widget child;
-  const MainShell({required this.child, super.key});
-
-  @override
-  State<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<MainShell> {
-  int _currentIndex = 0;
+/// Uses StatefulShellRoute for optimal performance and state preservation.
+class MainShell extends StatelessWidget {
+  final StatefulNavigationShell navigationShell;
+  const MainShell({required this.navigationShell, super.key});
 
   static const _tabs = [
-    _TabItem(route: AppRoutes.home,     icon: Icons.home_outlined,          activeIcon: Icons.home,              label: 'Home'),
-    _TabItem(route: AppRoutes.photos,   icon: Icons.photo_library_outlined,  activeIcon: Icons.photo_library,     label: 'Photos'),
-    _TabItem(route: AppRoutes.stats,    icon: Icons.straighten_outlined,     activeIcon: Icons.straighten,        label: 'Stats'),
-    _TabItem(route: AppRoutes.progress, icon: Icons.show_chart_outlined,     activeIcon: Icons.show_chart,        label: 'Progress'),
-    _TabItem(route: AppRoutes.settings, icon: Icons.settings_outlined,       activeIcon: Icons.settings,          label: 'Settings'),
+    _TabItem(icon: Icons.home_outlined,          activeIcon: Icons.home,              label: 'Home'),
+    _TabItem(icon: Icons.photo_library_outlined,  activeIcon: Icons.photo_library,     label: 'Photos'),
+    _TabItem(icon: Icons.straighten_outlined,     activeIcon: Icons.straighten,        label: 'Stats'),
+    _TabItem(icon: Icons.show_chart_outlined,     activeIcon: Icons.show_chart,        label: 'Progress'),
+    _TabItem(icon: Icons.settings_outlined,       activeIcon: Icons.settings,          label: 'Settings'),
   ];
 
-  void _onTabTap(int index) {
+  void _onTabTap(BuildContext context, int index) {
     HapticFeedback.lightImpact();
-    if (_currentIndex == index) return;
-    setState(() => _currentIndex = index);
-    context.go(_tabs[index].route);
+    navigationShell.goBranch(
+      index,
+      initialLocation: index == navigationShell.currentIndex,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: widget.child,
+      body: navigationShell,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: AppColors.cardBackground,
@@ -55,9 +50,9 @@ class _MainShellState extends State<MainShell> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: List.generate(_tabs.length, (i) {
                 final tab = _tabs[i];
-                final isActive = _currentIndex == i;
+                final isActive = navigationShell.currentIndex == i;
                 return GestureDetector(
-                  onTap: () => _onTabTap(i),
+                  onTap: () => _onTabTap(context, i),
                   behavior: HitTestBehavior.opaque,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -108,9 +103,8 @@ class _MainShellState extends State<MainShell> {
 }
 
 class _TabItem {
-  final String route;
   final IconData icon;
   final IconData activeIcon;
   final String label;
-  const _TabItem({required this.route, required this.icon, required this.activeIcon, required this.label});
+  const _TabItem({required this.icon, required this.activeIcon, required this.label});
 }

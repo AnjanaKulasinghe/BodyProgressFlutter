@@ -59,19 +59,8 @@ GoRouter createRouter(WidgetRef ref) {
         final user = authStream.valueOrNull;
         final isAuthenticated = user != null;
 
-        // Check if user can proceed (verified email or social login)
-        bool canProceed = false;
-        if (isAuthenticated) {
-          if (user.emailVerified) {
-            canProceed = true;
-          } else {
-            final providerIds = user.providerData.map((p) => p.providerId).toList();
-            canProceed = providerIds.contains('apple.com') || providerIds.contains('google.com');
-          }
-        }
-
+        // Email verification disabled - all authenticated users can proceed
         if (!isAuthenticated) return AppRoutes.auth;
-        if (!canProceed) return AppRoutes.verifyEmail;
 
         // Check if user has a profile in Firestore
         final authNotifier = ref.read(authProvider.notifier);
@@ -127,47 +116,74 @@ GoRouter createRouter(WidgetRef ref) {
         builder: (_, __) => const ProfileSetupView(),
       ),
 
-      // Main Tab Shell
-      ShellRoute(
-        builder: (context, state, child) => MainShell(child: child),
-        routes: [
-          GoRoute(
-            path: AppRoutes.home,
-            builder: (_, __) => const HomeView(),
-          ),
-          GoRoute(
-            path: AppRoutes.photos,
-            builder: (_, __) => const PhotosView(),
+      // Main Tab Shell with Stateful Navigation (preserves state between tabs)
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return MainShell(navigationShell: navigationShell);
+        },
+        branches: [
+          // Branch 0: Home
+          StatefulShellBranch(
             routes: [
               GoRoute(
-                path: 'upload',
-                builder: (_, __) => const PhotoUploadJourneyView(),
-              ),
-              GoRoute(
-                path: 'compare',
-                builder: (_, __) => const PhotoComparisonView(),
+                path: AppRoutes.home,
+                builder: (_, __) => const HomeView(),
               ),
             ],
           ),
-          GoRoute(
-            path: AppRoutes.stats,
-            builder: (_, __) => const StatsView(),
+          // Branch 1: Photos
+          StatefulShellBranch(
             routes: [
               GoRoute(
-                path: 'entry',
-                builder: (_, state) {
-                  return const StatsEntryView();
-                },
+                path: AppRoutes.photos,
+                builder: (_, __) => const PhotosView(),
+                routes: [
+                  GoRoute(
+                    path: 'upload',
+                    builder: (_, __) => const PhotoUploadJourneyView(),
+                  ),
+                  GoRoute(
+                    path: 'compare',
+                    builder: (_, __) => const PhotoComparisonView(),
+                  ),
+                ],
               ),
             ],
           ),
-          GoRoute(
-            path: AppRoutes.progress,
-            builder: (_, __) => const ProgressView(),
+          // Branch 2: Stats
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.stats,
+                builder: (_, __) => const StatsView(),
+                routes: [
+                  GoRoute(
+                    path: 'entry',
+                    builder: (_, state) {
+                      return const StatsEntryView();
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
-          GoRoute(
-            path: AppRoutes.settings,
-            builder: (_, __) => const SettingsView(),
+          // Branch 3: Progress
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.progress,
+                builder: (_, __) => const ProgressView(),
+              ),
+            ],
+          ),
+          // Branch 4: Settings
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.settings,
+                builder: (_, __) => const SettingsView(),
+              ),
+            ],
           ),
         ],
       ),

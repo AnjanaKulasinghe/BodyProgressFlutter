@@ -18,9 +18,16 @@ class _EditProfileViewState extends ConsumerState<EditProfileView> {
   @override
   void initState() {
     super.initState();
-    // Load current profile data into the provider's edit state
+    // Load current profile data into edit state (only if not already loaded)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(profileProvider.notifier).loadCurrentProfileForEdit();
+      final currentProfile = ref.read(profileProvider).profile;
+      if (currentProfile != null) {
+        // Profile already loaded - just populate form fields
+        ref.read(profileProvider.notifier).loadProfileIntoEditState(currentProfile);
+      } else {
+        // Profile not loaded yet - fetch from Firestore
+        ref.read(profileProvider.notifier).loadCurrentProfileForEdit();
+      }
     });
   }
 
@@ -268,10 +275,19 @@ class _EditProfileViewState extends ConsumerState<EditProfileView> {
                 )),
             const SizedBox(height: 16),
             _FormField(
-              label: 'Target Weight (kg) - optional',
+              label: 'Target Weight (kg) *',
               initialValue: profileState.targetWeight,
               keyboardType: TextInputType.number,
               onChanged: notifier.setTargetWeight,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Required for milestone and achievement tracking',
+              style: TextStyle(
+                color: AppColors.textTertiary.withOpacity(0.7),
+                fontSize: 12,
+                fontFamily: 'Nunito',
+              ),
             ),
             const SizedBox(height: 32),
 

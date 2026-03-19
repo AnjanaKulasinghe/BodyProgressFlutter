@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:body_progress/core/design_system.dart';
 import 'package:body_progress/core/router.dart';
+import 'package:body_progress/core/toast_manager.dart';
+import 'package:body_progress/services/health_service.dart';
 import 'package:body_progress/widgets/loading_button.dart';
 
-class OnboardingView extends StatefulWidget {
+class OnboardingView extends ConsumerStatefulWidget {
   const OnboardingView({super.key});
   @override
-  State<OnboardingView> createState() => _OnboardingViewState();
+  ConsumerState<OnboardingView> createState() => _OnboardingViewState();
 }
 
-class _OnboardingViewState extends State<OnboardingView> with TickerProviderStateMixin {
+class _OnboardingViewState extends ConsumerState<OnboardingView> with TickerProviderStateMixin {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   late List<AnimationController> _animationControllers;
@@ -125,9 +128,28 @@ class _OnboardingViewState extends State<OnboardingView> with TickerProviderStat
   }
 
   Future<void> _completeOnboarding() async {
+    // Complete onboarding first, then request health permission asynchronously
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('hasCompletedOnboarding', true);
     if (mounted) context.go(AppRoutes.profileSetup);
+    
+    // Request health permission in background (non-blocking)
+    // This allows user to proceed immediately while permission dialog shows
+    Future.microtask(() async {
+      try {
+        final healthService = HealthService();
+        final granted = await healthService.requestAuthorization();
+        
+        // Don't show toasts here - user has already moved to profile setup
+        if (granted) {
+          print('Health access granted during onboarding');
+        } else {
+          print('Health access denied during onboarding');
+        }
+      } catch (e) {
+        print('Health authorization error: $e');
+      }
+    });
   }
 
   void _onPageChanged(int page) {

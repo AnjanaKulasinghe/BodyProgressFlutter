@@ -61,12 +61,12 @@ class PhotoMetadata {
       fileName: d['fileName'] as String,
       storageUrl: d['storageURL'] as String,
       thumbnailUrl: d['thumbnailURL'] as String?,
-      date: (d['date'] as Timestamp).toDate(),
+      date: (d['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       photoType: PhotoType.fromString(d['photoType'] as String? ?? 'front'),
       weight: (d['weight'] as num?)?.toDouble(),
       notes: d['notes'] as String?,
       isPublic: d['isPublic'] as bool? ?? false,
-      uploadedAt: (d['uploadedAt'] as Timestamp).toDate(),
+      uploadedAt: (d['uploadedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       fileSize: (d['fileSize'] as num?)?.toInt() ?? 0,
       dimensions: d['dimensions'] != null
           ? PhotoDimensions.fromMap(d['dimensions'] as Map<String, dynamic>)

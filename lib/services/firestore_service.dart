@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:body_progress/models/user_profile.dart';
 import 'package:body_progress/models/body_stats.dart';
@@ -5,7 +6,7 @@ import 'package:body_progress/models/photo_metadata.dart';
 
 /// Manages all Firestore data access — users, bodyStats, photoMetadata collections.
 class FirestoreService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  static FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   CollectionReference get _users     => _db.collection('users');
   CollectionReference get _bodyStats => _db.collection('bodyStats');
@@ -14,27 +15,39 @@ class FirestoreService {
   // ── User Profile ──────────────────────────────────────────────────────────
 
   Future<void> saveUserProfile(UserProfile profile) async {
-    final ref = profile.id != null ? _users.doc(profile.id) : _users.doc(profile.userId);
+    final ref = _users.doc(profile.userId);
     await ref.set(profile.toFirestore());
   }
 
   Future<UserProfile?> getUserProfile(String userId) async {
-    final query = await _users.where('userId', isEqualTo: userId).limit(1).get();
-    if (query.docs.isEmpty) return null;
-    return UserProfile.fromFirestore(query.docs.first);
+    try {
+      final doc = await _users.doc(userId).get();
+      if (!doc.exists) return null;
+      return UserProfile.fromFirestore(doc);
+    } catch (e) {
+      // If document doesn't exist or there's a permission error, return null
+      print('getUserProfile error: $e');
+      return null;
+    }
   }
 
   Future<void> updateUserProfile(UserProfile profile) async {
-    final ref = profile.id != null ? _users.doc(profile.id) : _users.doc(profile.userId);
-    await ref.update({
+    final ref = _users.doc(profile.userId);
+    await ref.set({
       ...profile.toFirestore(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 
   Future<bool> hasUserProfile(String userId) async {
-    final query = await _users.where('userId', isEqualTo: userId).limit(1).get();
-    return query.docs.isNotEmpty;
+    try {
+      final doc = await _users.doc(userId).get();
+      return doc.exists;
+    } catch (e) {
+      // If there's any error checking profile existence, return false
+      print('hasUserProfile error: $e');
+      return false;
+    }
   }
 
   // ── Body Stats ────────────────────────────────────────────────────────────
@@ -44,7 +57,7 @@ class FirestoreService {
 
   Future<void> saveOrUpdateBodyStats(BodyStats stats) async {
     final docId = '${stats.userId}_${stats.date.millisecondsSinceEpoch}';
-    await _bodyStats.doc(docId).set(stats.toFirestore(), SetOptions(merge: true));
+    await _bodyStats.doc(docId).set(stats.toFirestore());
   }
 
   Future<List<BodyStats>> getBodyStats(String userId, {int limit = 100}) async {
@@ -85,12 +98,36 @@ class FirestoreService {
   Future<void> deleteBodyStats(String id) => _bodyStats.doc(id).delete();
 
   Future<void> batchSaveBodyStats(List<BodyStats> statsList) async {
-    final batch = _db.batch();
-    for (final s in statsList) {
-      final ref = _bodyStats.doc();
-      batch.set(ref, s.toFirestore());
+    // Use smaller batches for faster, more reliable commits
+    const int batchSize = 50;
+    
+    for (int i = 0; i < statsList.length; i += batchSize) {
+      final batch = _db.batch();
+      final end = (i + batchSize < statsList.length) ? i + batchSize : statsList.length;
+      final chunk = statsList.sublist(i, end);
+      
+      for (final stats in chunk) {
+        final docId = '${stats.userId}_${stats.date.millisecondsSinceEpoch}';
+        batch.set(
+          _bodyStats.doc(docId),
+          stats.toFirestore(),
+          SetOptions(merge: true),
+        );
+      }
+      
+      // Add timeout back with generous 60 second limit for slow networks
+      try {
+        await batch.commit().timeout(
+          const Duration(seconds: 60),
+          onTimeout: () {
+            throw TimeoutException('Firestore batch commit timed out after 60 seconds');
+          },
+        );
+      } catch (e) {
+        print('Batch write error for chunk ${(i ~/ batchSize) + 1}: $e');
+        rethrow;
+      }
     }
-    await batch.commit();
   }
 
   Future<List<BodyStats>> getWeightHistory(String userId, {int days = 90}) async {

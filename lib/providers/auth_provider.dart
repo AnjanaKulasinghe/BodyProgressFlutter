@@ -40,10 +40,7 @@ class AuthState {
   bool get isEmailVerified => user?.emailVerified ?? false;
 
   bool get canProceed {
-    if (!isAuthenticated) return false;
-    if (isEmailVerified) return true;
-    final providerIds = user?.providerData.map((p) => p.providerId).toList() ?? [];
-    return providerIds.contains('apple.com') || providerIds.contains('google.com');
+    return isAuthenticated;
   }
 
   AuthState copyWith({
@@ -192,11 +189,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> resendVerificationEmail() async {
-    try {
-      await _authService.sendEmailVerification();
-    } catch (e) {
-      _setError(e.toString());
-    }
+    // No-op: Email verification disabled for simpler user experience
+    // Method kept for compatibility with EmailVerificationView
   }
 
   Future<void> reloadUser() => _authService.reloadUser();

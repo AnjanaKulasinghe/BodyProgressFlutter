@@ -20,8 +20,8 @@ class _StatsViewState extends ConsumerState<StatsView> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) =>
-        ref.read(statsProvider.notifier).loadFromCache());
+    // Stats are already cached in progressProvider from loading screen
+    // No need to reload on every visit - just read from cached data
   }
 
   @override
@@ -53,10 +53,16 @@ class _StatsViewState extends ConsumerState<StatsView> {
       ),
       body: stats.isEmpty
           ? _EmptyStatsState()
-          : ListView.builder(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              itemCount: stats.length,
-              itemBuilder: (_, i) => _StatsCard(stat: stats[i]),
+          : RefreshIndicator(
+              color: AppColors.brandPrimary,
+              onRefresh: () async {
+                await ref.read(progressProvider.notifier).loadAndCacheBodyStats();
+              },
+              child: ListView.builder(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                itemCount: stats.length,
+                itemBuilder: (_, i) => _StatsCard(stat: stats[i]),
+              ),
             ),
     );
   }

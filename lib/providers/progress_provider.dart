@@ -101,6 +101,9 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
   ProgressNotifier(this._ref) : super(const ProgressState());
 
   String? get _uid => _ref.read(authProvider).user?.uid;
+  
+  // Expose health service for permission checks
+  HealthService get healthService => _healthService;
 
   // ── Cache Management ──────────────────────────────────────────────────────
 
@@ -109,8 +112,10 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
     if (uid == null) return Duration.zero;
     final start = DateTime.now();
     final stats = await _firestoreService.getBodyStats(uid, limit: 1000);
+    // Explicitly sort descending (newest first) for display
+    stats.sort((a, b) => b.date.compareTo(a.date));
     state = state.copyWith(
-      cachedBodyStats: stats..sort((a, b) => b.date.compareTo(a.date)),
+      cachedBodyStats: stats,
       isCacheLoaded: true,
     );
     _applyFilter();
@@ -118,8 +123,9 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
   }
 
   void addCachedBodyStat(BodyStats stat) {
-    final updated = [stat, ...state.cachedBodyStats]
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final updated = [stat, ...state.cachedBodyStats];
+    // Ensure descending order (newest first)
+    updated.sort((a, b) => b.date.compareTo(a.date));
     state = state.copyWith(cachedBodyStats: updated);
     _applyFilter();
   }
@@ -127,7 +133,10 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
   void updateCachedBodyStat(BodyStats stat) {
     final idx = state.cachedBodyStats.indexWhere((s) => s.id == stat.id);
     if (idx == -1) return;
-    final updated = [...state.cachedBodyStats]..[idx] = stat;
+    final updated = [...state.cachedBodyStats];
+    updated[idx] = stat;
+    // Re-sort descending (newest first) in case date was changed
+    updated.sort((a, b) => b.date.compareTo(a.date));
     state = state.copyWith(cachedBodyStats: updated);
     _applyFilter();
   }
@@ -148,7 +157,8 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
     final filtered = cutoff == null
         ? state.cachedBodyStats
         : state.cachedBodyStats.where((s) => s.date.isAfter(cutoff)).toList();
-    state = state.copyWith(bodyStats: filtered..sort((a, b) => a.date.compareTo(b.date)));
+    // Keep filtered data in descending order (newest first) for both charts and lists
+    state = state.copyWith(bodyStats: filtered..sort((a, b) => b.date.compareTo(a.date)));
   }
 
   void setTimeRange(TimeRange r) {
@@ -163,7 +173,10 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
   // ── Chart Data ────────────────────────────────────────────────────────────
 
   List<ChartDataPoint> get chartData {
-    return state.bodyStats.map((s) {
+    // Sort ascending for chart display (left to right = old to new)
+    final sortedForChart = [...state.bodyStats]
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return sortedForChart.map((s) {
       final v = _getValue(s, state.selectedMetric);
       return v != null ? ChartDataPoint(date: s.date, value: v) : null;
     }).whereType<ChartDataPoint>().toList();
@@ -186,6 +199,7 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
 
   // ── Statistics ────────────────────────────────────────────────────────────
 
+  // ChartData is sorted ascending (oldest to newest) for chart display
   double? get currentValue => chartData.isNotEmpty ? chartData.last.value : null;
   double? get startValue   => chartData.isNotEmpty ? chartData.first.value : null;
   double? get totalChange  => (currentValue != null && startValue != null)
@@ -212,11 +226,15 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
 
   Future<HealthSyncResult> syncWithHealth({int years = 5}) async {
     final uid = _uid;
-    if (uid == null) return const HealthSyncResult(uploadedCount: 0, errorMessage: 'Not authenticated');
+    if (uid == null) {
+      return const HealthSyncResult(uploadedCount: 0, errorMessage: 'Not authenticated');
+    }
+    
     state = state.copyWith(isLoading: true);
     final result = await _healthService.syncLastYears(years, uid);
     await loadAndCacheBodyStats();
     state = state.copyWith(isLoading: false);
+    
     return result;
   }
 }

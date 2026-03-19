@@ -42,18 +42,14 @@ class _AuthViewState extends ConsumerState<AuthView>
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
 
-    // Listen for errors
+    // Listen for errors and successful authentication
     ref.listen<AuthState>(authProvider, (_, next) {
       if (next.showingAlert && next.errorMessage != null) {
         ToastManager.shared.show(next.errorMessage!, type: ToastType.error);
         ref.read(authProvider.notifier).clearError();
       }
       if (next.isAuthenticated) {
-        if (next.canProceed) {
-          context.go(AppRoutes.home);
-        } else {
-          context.go(AppRoutes.verifyEmail);
-        }
+        context.go(AppRoutes.home);
       }
     });
 

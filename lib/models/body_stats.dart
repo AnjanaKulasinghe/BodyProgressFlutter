@@ -46,7 +46,7 @@ class BodyStats {
     return BodyStats(
       id: doc.id,
       userId: d['userId'] as String,
-      date: (d['date'] as Timestamp).toDate(),
+      date: (d['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       weight: (d['weight'] as num).toDouble(),
       waistCircumference: (d['waistCircumference'] as num?)?.toDouble(),
       neckCircumference: (d['neckCircumference'] as num?)?.toDouble(),
@@ -58,7 +58,7 @@ class BodyStats {
       muscleMass: (d['muscleMass'] as num?)?.toDouble(),
       notes: d['notes'] as String?,
       source: DataSource.fromString(d['source'] as String? ?? 'manual'),
-      createdAt: (d['createdAt'] as Timestamp).toDate(),
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       bmi: (d['bmi'] as num?)?.toDouble(),
     );
   }
@@ -170,6 +170,7 @@ class BodyStats {
 enum DataSource {
   manual('manual'),
   healthKit('healthKit'),
+  healthConnect('healthConnect'),
   scale('scale');
 
   const DataSource(this.value);

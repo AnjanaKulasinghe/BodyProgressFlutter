@@ -28,12 +28,9 @@ class AuthService {
   bool get isSignedInWithApple => currentUser?.providerData
           .any((p) => p.providerId == 'apple.com') ?? false;
 
-  /// A user can proceed if authenticated AND (email verified OR signed in with Apple/Google)
+  /// A user can proceed if authenticated (email verification disabled)
   bool get canProceed {
-    if (!isAuthenticated) return false;
-    if (isEmailVerified) return true;
-    final providerIds = currentUser?.providerData.map((p) => p.providerId).toList() ?? [];
-    return providerIds.contains('apple.com') || providerIds.contains('google.com');
+    return isAuthenticated;
   }
 
   // ── Email / Password ───────────────────────────────────────────────────────
@@ -48,7 +45,8 @@ class AuthService {
       password: password,
     );
     await cred.user?.updateDisplayName(name.trim());
-    await cred.user?.sendEmailVerification();
+    // Email verification disabled for simpler user experience
+    // await cred.user?.sendEmailVerification();
     return cred;
   }
 
@@ -70,11 +68,9 @@ class AuthService {
   Future<void> sendPasswordResetEmail(String email) =>
       _auth.sendPasswordResetEmail(email: email.trim());
 
+  // Email verification disabled - method kept for compatibility but does nothing
   Future<void> sendEmailVerification() async {
-    await currentUser?.reload();
-    if (!(currentUser?.emailVerified ?? false)) {
-      await currentUser?.sendEmailVerification();
-    }
+    // No-op: Email verification disabled for simpler user experience
   }
 
   Future<void> reloadUser() => _auth.currentUser?.reload() ?? Future.value();
@@ -101,7 +97,20 @@ class AuthService {
       rawNonce: rawNonce,
     );
 
-    return _auth.signInWithCredential(oauthCredential);
+    final userCredential = await _auth.signInWithCredential(oauthCredential);
+    
+    // Update display name from Apple-provided data if available
+    final user = userCredential.user;
+    if (user != null && user.displayName == null) {
+      final givenName = appleCredential.givenName;
+      final familyName = appleCredential.familyName;
+      if (givenName != null && familyName != null) {
+        final fullName = '$givenName $familyName'.trim();
+        await user.updateDisplayName(fullName);
+      }
+    }
+    
+    return userCredential;
   }
 
   // ── Google Sign In (Android primary, iOS secondary) ───────────────────────

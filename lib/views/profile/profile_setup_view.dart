@@ -20,6 +20,24 @@ class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
   int _currentStep = 0;
   static const _totalSteps = 3;
 
+  @override
+  void initState() {
+    super.initState();
+    // Ensure profile state is initialized with user's auth data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final profileState = ref.read(profileProvider);
+      if (profileState.name.isEmpty || profileState.email.isEmpty) {
+        ref.read(profileProvider.notifier).loadProfile();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
   void _nextStep() {
     if (_currentStep < _totalSteps - 1) {
       _pageController.nextPage(
@@ -39,10 +57,18 @@ class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
   }
 
   Future<void> _submit() async {
-    final ok = await ref.read(profileProvider.notifier).saveProfile();
-    if (ok && mounted) {
-      ToastManager.shared.show('Profile created!', type: ToastType.success);
-      context.go(AppRoutes.home);
+    try {
+      final ok = await ref.read(profileProvider.notifier).saveProfile();
+      if (ok && mounted) {
+        ToastManager.shared.show('Profile created!', type: ToastType.success);
+        // Small delay to ensure Firestore write completes before navigation
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) context.go(AppRoutes.home);
+      }
+    } catch (e) {
+      if (mounted) {
+        ToastManager.shared.show('Error creating profile: $e', type: ToastType.error);
+      }
     }
   }
 
@@ -120,6 +146,10 @@ class _BasicInfoStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if name and email are pre-filled (from Sign in with Apple or Google)
+    final hasPrefilledName = state.name.isNotEmpty && state.isNewProfile;
+    final hasPrefilledEmail = state.email.isNotEmpty && state.isNewProfile;
+    
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -130,10 +160,22 @@ class _BasicInfoStep extends StatelessWidget {
           const Text('This helps us personalise your experience',
               style: TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito')),
           const SizedBox(height: 32),
-          _FormField(label: 'Full Name', initialValue: state.name, onChanged: notifier.setName),
+          _FormField(
+            label: 'Full Name', 
+            initialValue: state.name, 
+            onChanged: notifier.setName,
+            enabled: !hasPrefilledName,
+            helperText: hasPrefilledName ? 'Provided by Sign in with Apple' : null,
+          ),
           const SizedBox(height: 16),
-          _FormField(label: 'Email', initialValue: state.email,
-              keyboardType: TextInputType.emailAddress, onChanged: notifier.setEmail),
+          _FormField(
+            label: 'Email', 
+            initialValue: state.email,
+            keyboardType: TextInputType.emailAddress, 
+            onChanged: notifier.setEmail,
+            enabled: !hasPrefilledEmail,
+            helperText: hasPrefilledEmail ? 'Provided by your account' : null,
+          ),
           const SizedBox(height: 16),
           const Text('Date of Birth', style: TextStyle(color: AppColors.textSecondary, fontSize: 14, fontFamily: 'Nunito')),
           const SizedBox(height: 8),
@@ -315,10 +357,15 @@ class _GoalsStep extends StatelessWidget {
           )),
           const SizedBox(height: 16),
           _FormField(
-            label: 'Target Weight (kg) - optional',
+            label: 'Target Weight (kg) *',
             initialValue: state.targetWeight,
             keyboardType: TextInputType.number,
             onChanged: notifier.setTargetWeight,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Required for milestone and achievement tracking',
+            style: TextStyle(color: AppColors.textTertiary.withOpacity(0.7), fontSize: 12, fontFamily: 'Nunito'),
           ),
         ],
       ),
@@ -331,10 +378,16 @@ class _FormField extends StatelessWidget {
   final String initialValue;
   final TextInputType? keyboardType;
   final void Function(String) onChanged;
+  final bool enabled;
+  final String? helperText;
 
   const _FormField({
-    required this.label, required this.initialValue,
-    required this.onChanged, this.keyboardType,
+    required this.label, 
+    required this.initialValue,
+    required this.onChanged, 
+    this.keyboardType,
+    this.enabled = true,
+    this.helperText,
   });
 
   @override
@@ -343,8 +396,24 @@ class _FormField extends StatelessWidget {
       initialValue: initialValue,
       keyboardType: keyboardType,
       onChanged: onChanged,
-      style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
-      decoration: InputDecoration(labelText: label),
+      enabled: enabled,
+      style: TextStyle(
+        color: enabled ? AppColors.textPrimary : AppColors.textSecondary, 
+        fontFamily: 'Nunito'
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: helperText,
+        helperStyle: const TextStyle(
+          color: AppColors.textTertiary, 
+          fontSize: 12, 
+          fontFamily: 'Nunito'
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.white.withOpacity(0.05)),
+        ),
+      ),
     );
   }
 }

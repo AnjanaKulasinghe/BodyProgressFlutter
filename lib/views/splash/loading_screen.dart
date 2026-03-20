@@ -9,6 +9,7 @@ import 'package:body_progress/core/router.dart';
 import 'package:body_progress/providers/auth_provider.dart';
 import 'package:body_progress/providers/app_init_provider.dart';
 import 'package:body_progress/providers/progress_provider.dart';
+import 'package:body_progress/services/health_service.dart';
 
 /// Premium animated splash / loading screen matching iOS design
 class LoadingScreen extends ConsumerStatefulWidget {

@@ -75,6 +75,21 @@ class AuthService {
 
   Future<void> reloadUser() => _auth.currentUser?.reload() ?? Future.value();
 
+  /// Re-authenticate user before sensitive operations (like account deletion)
+  Future<void> reauthenticateWithPassword(String password) async {
+    final user = currentUser;
+    if (user == null || user.email == null) {
+      throw Exception('No authenticated user');
+    }
+    
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: password,
+    );
+    
+    await user.reauthenticateWithCredential(credential);
+  }
+
   Future<void> deleteAccount() => currentUser?.delete() ?? Future.value();
 
   // ── Apple Sign In (iOS + macOS — also works on Android via web) ───────────

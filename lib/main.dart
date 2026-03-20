@@ -66,12 +66,30 @@ void main() async {
       persistenceEnabled: false,  // Disable offline persistence to prevent queue buildup
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
     );
-    await firestore.enableNetwork();  // Ensure network is enabled
+    try {
+      await firestore.enableNetwork().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('⚠️  Firestore network enable timed out');
+        },
+      );
+    } catch (e) {
+      print('⚠️  Firestore network enable failed: $e');
+    }
 
     // Initialize notification service
     print('Initializing notifications...');
-    await NotificationService().initialize();
-    print('Notifications initialized');
+    try {
+      await NotificationService().initialize().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('⚠️  Notification initialization timed out');
+        },
+      );
+      print('Notifications initialized');
+    } catch (e) {
+      print('⚠️  Notification initialization failed: $e');
+    }
 
     print('Running app...');
     runApp(const ProviderScope(child: BodyProgressApp()));

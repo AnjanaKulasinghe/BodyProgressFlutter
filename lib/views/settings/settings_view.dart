@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:body_progress/core/design_system.dart';
 import 'package:body_progress/core/router.dart';
 import 'package:body_progress/core/toast_manager.dart';
@@ -15,11 +16,58 @@ import 'package:body_progress/views/settings/app_guide_view.dart';
 import 'package:body_progress/views/profile/edit_profile_view.dart';
 import 'package:body_progress/views/achievements/achievements_view.dart';
 
-class SettingsView extends ConsumerWidget {
+class SettingsView extends ConsumerStatefulWidget {
   const SettingsView({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsView> createState() => _SettingsViewState();
+}
+
+class _SettingsViewState extends ConsumerState<SettingsView> {
+  bool _healthPermissionGranted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHealthPermission();
+  }
+
+  Future<void> _loadHealthPermission() async {
+    // Check both SharedPreferences and actual health service permission
+    final prefs = await SharedPreferences.getInstance();
+    var permissionGranted = prefs.getBool('healthPermissionGranted') ?? false;
+    
+    // Also check actual health service permission status (with timeout)
+    if (!permissionGranted) {
+      try {
+        final healthService = ref.read(progressProvider.notifier).healthService;
+        final hasPermission = await healthService.hasPermissions().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            print('⚠️  Health permission check timed out in settings');
+            return false;
+          },
+        );
+        
+        // If health permission is granted but not saved, save it
+        if (hasPermission) {
+          await prefs.setBool('healthPermissionGranted', true);
+          permissionGranted = true;
+        }
+      } catch (e) {
+        print('Error checking health permission: $e');
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _healthPermissionGranted = permissionGranted;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final profileState = ref.watch(profileProvider);
     final profile = profileState.profile;
@@ -107,7 +155,22 @@ class SettingsView extends ConsumerWidget {
             _SettingsTile(
               icon: Icons.health_and_safety_outlined,
               label: 'Sync Health Data',
-              sublabel: 'Import from HealthKit / Google Health Connect',
+              sublabel: _healthPermissionGranted 
+                  ? 'Connected to ${Platform.isIOS ? 'HealthKit' : 'Google Health Connect'}'
+                  : 'Import from HealthKit / Google Health Connect',
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_healthPermissionGranted)
+                    const Icon(
+                      Icons.check_circle,
+                      color: AppColors.successGreen,
+                      size: 20,
+                    ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, color: AppColors.textTertiary, size: 20),
+                ],
+              ),
               onTap: () async {
                 try {
                   final healthService = ref.read(progressProvider.notifier).healthService;
@@ -134,185 +197,102 @@ class SettingsView extends ConsumerWidget {
                       return;
                     }
                     
+                    // Save permission granted flag
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('healthPermissionGranted', true);
+                    
+                    // Update UI
+                    if (mounted) {
+                      setState(() {
+                        _healthPermissionGranted = true;
+                      });
+                    }
+                    
                     ToastManager.shared.show(
                       'Health access granted! Starting sync...',
                       type: ToastType.success,
                     );
                   }
-                  
-                  // Show loading dialog
-                  showDialog(
-                    context: context,
-                    barrierDismissible: false,
-                    useRootNavigator: true,
-                    builder: (dialogContext) => PopScope(
-                      canPop: false,
-                      child: AlertDialog(
-                        backgroundColor: AppColors.cardBackground,
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const CircularProgressIndicator(color: AppColors.brandPrimary),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Syncing health data...',
-                              style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                      
+                      // Capture context before async gap
+                      if (!context.mounted) return;
+                      final navigator = Navigator.of(context, rootNavigator: true);
+                      
+                      // Show loading dialog
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        useRootNavigator: true,
+                        builder: (dialogContext) => PopScope(
+                          canPop: false,
+                          child: AlertDialog(
+                            backgroundColor: AppColors.cardBackground,
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const CircularProgressIndicator(color: AppColors.brandPrimary),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'Syncing health data...',
+                                  style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                  
-                  try {
-                    // Perform sync
-                    final result = await ref.read(progressProvider.notifier).syncWithHealth();
-                    
-                    // Safely dismiss loading dialog using root navigator
-                    if (context.mounted) {
-                      Navigator.of(context, rootNavigator: true).pop();
-                    }
-                    
-                    // Show result
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (context.mounted) {
-                        ToastManager.shared.show(
-                          result.errorMessage ?? 'Synced ${result.uploadedCount} entries',
-                          type: result.errorMessage != null ? ToastType.error : ToastType.success,
-                        );
-                      }
-                    });
-                  } catch (e) {
-                    print('Error syncing health data: $e');
-                    // Ensure dialog is dismissed on error using root navigator
-                    if (context.mounted) {
-                      try {
-                        Navigator.of(context, rootNavigator: true).pop();
-                      } catch (_) {
-                        // Dialog might already be gone
-                      }
-                    }
-                    
-                    // Show error toast
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (context.mounted) {
-                        ToastManager.shared.show(
-                          'Sync failed: ${e.toString()}',
-                          type: ToastType.error,
-                        );
-                      }
-                    });
-                  }
-                } catch (e) {
-                  print('Error in health sync setup: $e');
-                  ToastManager.shared.show('Sync failed: $e', type: ToastType.error);
-                }
-              },
-            ),
-          ]),
-          const SizedBox(height: AppSpacing.md),
-
-          // Diagnostics
-          _SettingsSection(title: 'Diagnostics', children: [
-            _SettingsTile(
-              icon: Icons.wifi_outlined,
-              label: 'Check Firebase Connection',
-              sublabel: 'Test if app can reach database',
-              onTap: () async {
-                // Show loading dialog
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (dialogContext) => AlertDialog(
-                    backgroundColor: AppColors.cardBackground,
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircularProgressIndicator(color: AppColors.brandPrimary),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Testing connection...',
-                          style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-                
-                try {
-                  final checker = ConnectivityChecker();
-                  final result = await checker.diagnoseConnectivity();
-                  
-                  // Dismiss loading dialog
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                  
-                  // Show result dialog
-                  if (context.mounted) {
-                    showDialog(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        backgroundColor: AppColors.cardBackground,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        title: Row(
-                          children: [
-                            Icon(
-                              result.isConnected ? Icons.check_circle_outlined : Icons.error_outline,
-                              color: result.isConnected ? Colors.green : AppColors.errorRed,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              result.isConnected ? 'Connected' : 'Connection Issue',
-                              style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
-                            ),
-                          ],
-                        ),
-                        content: result.isConnected
-                            ? const Text(
-                                'Firebase connection is working correctly!',
-                                style: TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
-                              )
-                            : Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Issue: ${result.issue}',
-                                    style: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'Nunito',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    result.suggestion ?? '',
-                                    style: const TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
-                                  ),
-                                ],
-                              ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext),
-                            child: const Text('OK', style: TextStyle(color: AppColors.brandPrimary)),
                           ),
-                        ],
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  // Dismiss loading dialog
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                  
-                  ToastManager.shared.show(
-                    'Connectivity test failed: $e',
-                    type: ToastType.error,
-                  );
-                }
-              },
+                        ),
+                      );
+                      
+                      try {
+                        // Perform sync
+                        final result = await ref.read(progressProvider.notifier).syncWithHealth();
+                        
+                        // Wait a frame to ensure dialog is fully rendered
+                        await Future.delayed(const Duration(milliseconds: 100));
+                        
+                        // Safely dismiss loading dialog
+                        if (context.mounted) {
+                          navigator.pop();
+                          
+                          // Wait for dialog to fully dismiss before showing toast
+                          await Future.delayed(const Duration(milliseconds: 200));
+                          
+                          if (context.mounted) {
+                            ToastManager.shared.show(
+                              result.errorMessage ?? 'Synced ${result.uploadedCount} entries',
+                              type: result.errorMessage != null ? ToastType.error : ToastType.success,
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        print('Error syncing health data: $e');
+                        
+                        // Wait a frame before dismissing on error
+                        await Future.delayed(const Duration(milliseconds: 100));
+                        
+                        // Ensure dialog is dismissed on error
+                        if (context.mounted) {
+                          try {
+                            navigator.pop();
+                            
+                            // Wait for dialog to dismiss
+                            await Future.delayed(const Duration(milliseconds: 200));
+                            
+                            if (context.mounted) {
+                              ToastManager.shared.show(
+                                'Sync failed: ${e.toString()}',
+                                type: ToastType.error,
+                              );
+                            }
+                          } catch (_) {
+                            // Dialog might already be gone
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      print('Error in health sync setup: $e');
+                      ToastManager.shared.show('Sync failed: $e', type: ToastType.error);
+                    }
+                  },
             ),
           ]),
           const SizedBox(height: AppSpacing.md),
@@ -375,8 +355,11 @@ class SettingsView extends ConsumerWidget {
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              // Router will automatically redirect to /auth when the auth stream fires
               await ref.read(authProvider.notifier).signOut();
+              // Manually navigate to auth page after sign-out
+              if (context.mounted) {
+                context.go(AppRoutes.auth);
+              }
             },
             child: const Text('Sign Out', style: TextStyle(color: AppColors.errorRed)),
           ),
@@ -386,6 +369,9 @@ class SettingsView extends ConsumerWidget {
   }
 
   void _showDeleteAccountDialog(BuildContext context, WidgetRef ref) {
+    final user = ref.read(authProvider).user;
+    final isEmailPasswordUser = user?.providerData.any((info) => info.providerId == 'password') ?? false;
+    
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -404,82 +390,12 @@ class SettingsView extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(dialogContext);
               
-              // Show loading dialog
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                useRootNavigator: true,
-                builder: (loadingContext) => PopScope(
-                  canPop: false,
-                  child: AlertDialog(
-                    backgroundColor: AppColors.cardBackground,
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircularProgressIndicator(color: AppColors.errorRed),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Deleting account...',
-                          style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-              
-              try {
-                await ref.read(authProvider.notifier).deleteAccount();
-                
-                // Dismiss loading dialog
-                if (context.mounted) {
-                  Navigator.of(context, rootNavigator: true).pop();
-                }
-                
-                // Show success message
-                if (context.mounted) {
-                  ToastManager.shared.show(
-                    'Account deleted successfully',
-                    type: ToastType.success,
-                  );
-                }
-                
-                // Router will automatically redirect to /auth
-              } catch (e) {
-                // Dismiss loading dialog
-                if (context.mounted) {
-                  try {
-                    Navigator.of(context, rootNavigator: true).pop();
-                  } catch (_) {}
-                }
-                
-                // Show error
-                if (context.mounted) {
-                  showDialog(
-                    context: context,
-                    builder: (errorContext) => AlertDialog(
-                      backgroundColor: AppColors.cardBackground,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      title: const Row(
-                        children: [
-                          Icon(Icons.error_outline, color: AppColors.errorRed),
-                          SizedBox(width: 8),
-                          Text('Delete Failed', style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito')),
-                        ],
-                      ),
-                      content: Text(
-                        'Failed to delete account: ${e.toString().replaceAll('Exception: ', '')}',
-                        style: const TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(errorContext),
-                          child: const Text('OK', style: TextStyle(color: AppColors.brandPrimary)),
-                        ),
-                      ],
-                    ),
-                  );
-                }
+              // If user signed in with email/password, require password confirmation
+              if (isEmailPasswordUser) {
+                _showPasswordConfirmationDialog(context, ref);
+              } else {
+                // For social sign-in users, proceed directly
+                _performAccountDeletion(context, ref, null);
               }
             },
             child: const Text('Delete Permanently', style: TextStyle(color: AppColors.errorRed, fontWeight: FontWeight.bold)),
@@ -487,6 +403,155 @@ class SettingsView extends ConsumerWidget {
         ],
       ),
     );
+  }
+  
+  void _showPasswordConfirmationDialog(BuildContext context, WidgetRef ref) {
+    final passwordController = TextEditingController();
+    bool obscurePassword = true;
+    
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: AppColors.cardBackground,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Confirm Password', style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Please enter your password to confirm account deletion',
+                style: TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: obscurePassword,
+                style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  labelStyle: const TextStyle(color: AppColors.textSecondary),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      color: AppColors.textTertiary,
+                    ),
+                    onPressed: () => setState(() => obscurePassword = !obscurePassword),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.brandPrimary),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () {
+                final password = passwordController.text;
+                if (password.isEmpty) {
+                  ToastManager.shared.show('Please enter your password', type: ToastType.error);
+                  return;
+                }
+                Navigator.pop(dialogContext);
+                _performAccountDeletion(context, ref, password);
+              },
+              child: const Text('Confirm', style: TextStyle(color: AppColors.errorRed, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  void _performAccountDeletion(BuildContext context, WidgetRef ref, String? password) async {
+    // Store navigator reference before showing dialog
+    final navigator = Navigator.of(context, rootNavigator: true);
+    
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (loadingContext) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          backgroundColor: AppColors.cardBackground,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: AppColors.errorRed),
+              const SizedBox(height: 16),
+              const Text(
+                'Deleting account...',
+                style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    
+    try {
+      await ref.read(authProvider.notifier).deleteAccount(password: password);
+      
+      // Force dismiss loading dialog using stored navigator
+      try {
+        navigator.pop();
+      } catch (_) {
+        // Navigator might be disposed if routing already happened
+      }
+      
+      // Show success toast (will show briefly before redirect)
+      ToastManager.shared.show(
+        'Account deleted successfully',
+        type: ToastType.success,
+      );
+      
+      // Router will automatically redirect to /auth when auth state changes
+    } catch (e) {
+      // Dismiss loading dialog
+      try {
+        navigator.pop();
+      } catch (_) {}
+      
+      // Show error dialog if context is still valid
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (errorContext) => AlertDialog(
+            backgroundColor: AppColors.cardBackground,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: AppColors.errorRed),
+                SizedBox(width: 8),
+                Text('Delete Failed', style: TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito')),
+              ],
+            ),
+            content: Text(
+              'Failed to delete account: ${e.toString().replaceAll('Exception: ', '')}',
+              style: const TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(errorContext),
+                child: const Text('OK', style: TextStyle(color: AppColors.brandPrimary)),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 }
 
@@ -586,9 +651,10 @@ class _SettingsTile extends StatelessWidget {
   final Color? color;
   final VoidCallback? onTap;
   final bool showChevron;
+  final Widget? trailing;
   const _SettingsTile({
     required this.icon, required this.label, this.sublabel,
-    this.color, this.onTap, this.showChevron = true,
+    this.color, this.onTap, this.showChevron = true, this.trailing,
   });
 
   @override
@@ -602,9 +668,9 @@ class _SettingsTile extends StatelessWidget {
           ? Text(sublabel!,
               style: const TextStyle(color: AppColors.textTertiary, fontFamily: 'Nunito', fontSize: 12))
           : null,
-      trailing: showChevron
+      trailing: trailing ?? (showChevron
           ? const Icon(Icons.chevron_right, color: AppColors.textTertiary, size: 20)
-          : null,
+          : null),
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );

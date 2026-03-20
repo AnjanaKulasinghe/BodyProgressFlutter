@@ -5,6 +5,7 @@ import 'package:body_progress/providers/auth_provider.dart';
 import 'package:body_progress/views/auth/auth_view.dart';
 import 'package:body_progress/views/auth/email_verification_view.dart';
 import 'package:body_progress/views/onboarding/onboarding_view.dart';
+import 'package:body_progress/views/tutorial/tutorial_view.dart';
 import 'package:body_progress/views/profile/profile_setup_view.dart';
 import 'package:body_progress/views/home/home_view.dart';
 import 'package:body_progress/views/photos/photos_view.dart';
@@ -25,6 +26,7 @@ class AppRoutes {
   static const verifyEmail   = '/verify-email';
   static const onboarding    = '/onboarding';
   static const profileSetup  = '/profile-setup';
+  static const tutorial      = '/tutorial';
   static const home          = '/home';
   static const photos        = '/photos';
   static const photoUpload   = '/photos/upload';
@@ -50,41 +52,37 @@ GoRouter createRouter(WidgetRef ref) {
       try {
         final path = state.matchedLocation;
 
-        // Always allow splash (it handles its own navigation)
-        if (path == AppRoutes.splash) return null;
+        // Always allow splash, tutorial, and loading-related routes
+        if (path == AppRoutes.splash || path == AppRoutes.tutorial) return null;
 
         // Use the stream-based provider to get a fresh auth state
-        // (authProvider can lag due to Riverpod caching during sign-out)
         final authStream = ref.read(authStreamProvider);
         final user = authStream.valueOrNull;
         final isAuthenticated = user != null;
 
-        // Email verification disabled - all authenticated users can proceed
+        // Redirect to auth if not authenticated
         if (!isAuthenticated) return AppRoutes.auth;
 
         // Check if user has a profile in Firestore
         final authNotifier = ref.read(authProvider.notifier);
         final hasProfile = await authNotifier.hasUserProfile();
         
-        // If user has a profile, skip onboarding and profile setup entirely
+        // If user has a profile, they can access the app
         if (hasProfile) {
-          // Existing user - load their profile and go directly to the app
+          // Existing user - skip onboarding and profile setup
           if (path == AppRoutes.onboarding || path == AppRoutes.profileSetup) {
-            return AppRoutes.home;
+            return AppRoutes.splash; // Go to loading screen to load data
           }
           if (path == AppRoutes.auth || path == AppRoutes.verifyEmail) {
-            return AppRoutes.home;
+            return AppRoutes.splash; // Go to loading screen to load data
           }
-          return null;
+          return null; // Allow access to requested route
         }
 
-        // New user flow - check onboarding then profile setup
-        if (path == AppRoutes.onboarding || path == AppRoutes.profileSetup) return null;
-        final prefs = await SharedPreferences.getInstance();
-        final hasOnboarded = prefs.getBool('hasCompletedOnboarding') ?? false;
-        if (!hasOnboarded) return AppRoutes.onboarding;
+        // New user flow - no onboarding, just profile setup then loading
+        if (path == AppRoutes.profileSetup) return null; // Allow profile setup
         
-        // Onboarding complete but no profile - go to profile setup
+        // If trying to access protected routes without profile, redirect to profile setup
         return AppRoutes.profileSetup;
       } catch (e) {
         print('Router redirect error: $e');
@@ -114,6 +112,10 @@ GoRouter createRouter(WidgetRef ref) {
       GoRoute(
         path: AppRoutes.profileSetup,
         builder: (_, __) => const ProfileSetupView(),
+      ),
+      GoRoute(
+        path: AppRoutes.tutorial,
+        builder: (_, __) => const TutorialView(),
       ),
 
       // Main Tab Shell with Stateful Navigation (preserves state between tabs)

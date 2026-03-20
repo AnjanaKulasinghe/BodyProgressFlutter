@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:body_progress/core/design_system.dart';
 import 'package:body_progress/core/router.dart';
 import 'package:body_progress/core/toast_manager.dart';
 import 'package:body_progress/models/user_profile.dart';
 import 'package:body_progress/providers/profile_provider.dart';
+import 'package:body_progress/services/health_service.dart';
 import 'package:body_progress/widgets/loading_button.dart';
 
 /// Multi-step profile setup wizard for new users, matching iOS ProfileSetupView.
@@ -18,17 +20,15 @@ class ProfileSetupView extends ConsumerStatefulWidget {
 class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
-  static const _totalSteps = 3;
+  static const _totalSteps = 4; // Updated to include health permission step
+  bool _healthPermissionGranted = false;
 
   @override
   void initState() {
     super.initState();
-    // Ensure profile state is initialized with user's auth data
+    // Always load profile to ensure auth data (name/email) is pre-filled
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final profileState = ref.read(profileProvider);
-      if (profileState.name.isEmpty || profileState.email.isEmpty) {
-        ref.read(profileProvider.notifier).loadProfile();
-      }
+      ref.read(profileProvider.notifier).loadProfile();
     });
   }
 
@@ -39,6 +39,9 @@ class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
   }
 
   void _nextStep() {
+    // Dismiss keyboard before navigation
+    FocusScope.of(context).unfocus();
+    
     if (_currentStep < _totalSteps - 1) {
       _pageController.nextPage(
           duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
@@ -49,6 +52,9 @@ class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
   }
 
   void _prevStep() {
+    // Dismiss keyboard before navigation
+    FocusScope.of(context).unfocus();
+    
     if (_currentStep > 0) {
       _pageController.previousPage(
           duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
@@ -58,12 +64,17 @@ class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
 
   Future<void> _submit() async {
     try {
+      // Save health permission preference
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('healthPermissionGranted', _healthPermissionGranted);
+      print('💾 Saved health permission: $_healthPermissionGranted');
+      
       final ok = await ref.read(profileProvider.notifier).saveProfile();
       if (ok && mounted) {
         ToastManager.shared.show('Profile created!', type: ToastType.success);
         // Small delay to ensure Firestore write completes before navigation
         await Future.delayed(const Duration(milliseconds: 300));
-        if (mounted) context.go(AppRoutes.home);
+        if (mounted) context.go(AppRoutes.splash); // Go to loading screen to sync data
       }
     } catch (e) {
       if (mounted) {
@@ -122,16 +133,57 @@ class _ProfileSetupViewState extends ConsumerState<ProfileSetupView> {
                 _BasicInfoStep(notifier: notifier, state: profileState),
                 _BodyMetricsStep(notifier: notifier, state: profileState),
                 _GoalsStep(notifier: notifier, state: profileState),
+                _HealthPermissionStep(
+                  onPermissionChanged: (granted) {
+                    setState(() => _healthPermissionGranted = granted);
+                  },
+                ),
               ],
             ),
           ),
           Padding(
             padding: const EdgeInsets.all(24),
-            child: LoadingButton(
-              label: _currentStep < _totalSteps - 1 ? 'Continue' : 'Complete Setup',
-              isLoading: profileState.isLoading,
-              onPressed: () async => _nextStep(),
-            ),
+            child: _currentStep == 3
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!_healthPermissionGranted)
+                        LoadingButton(
+                          label: 'Grant Permission',
+                          isLoading: false,
+                          onPressed: () async {
+                            print('🔘 Grant Permission button clicked');
+                            final healthService = HealthService();
+                            final granted = await healthService.requestAuthorization();
+                            print('🏥 Permission result: $granted');
+                            setState(() => _healthPermissionGranted = granted);
+                            if (granted && mounted) {
+                              ToastManager.shared.show(
+                                'Health access granted!', 
+                                type: ToastType.success,
+                              );
+                            } else if (mounted) {
+                              ToastManager.shared.show(
+                                'Health access was not granted', 
+                                type: ToastType.error,
+                              );
+                            }
+                          },
+                        ),
+                      if (!_healthPermissionGranted)
+                        const SizedBox(height: 12),
+                      LoadingButton(
+                        label: _healthPermissionGranted ? 'Complete Setup' : 'Skip for Now',
+                        isLoading: profileState.isLoading,
+                        onPressed: () async => _nextStep(),
+                      ),
+                    ],
+                  )
+                : LoadingButton(
+                    label: 'Continue',
+                    isLoading: profileState.isLoading,
+                    onPressed: () async => _nextStep(),
+                  ),
           ),
         ],
       ),
@@ -373,7 +425,195 @@ class _GoalsStep extends StatelessWidget {
   }
 }
 
-class _FormField extends StatelessWidget {
+class _HealthPermissionStep extends StatefulWidget {
+  final void Function(bool granted) onPermissionChanged;
+  
+  const _HealthPermissionStep({required this.onPermissionChanged});
+
+  @override
+  State<_HealthPermissionStep> createState() => _HealthPermissionStepState();
+}
+
+class _HealthPermissionStepState extends State<_HealthPermissionStep> {
+  final HealthService _healthService = HealthService();
+  bool _isChecking = false;
+  bool? _hasPermission;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPermission();
+  }
+
+  Future<void> _checkPermission() async {
+    setState(() => _isChecking = true);
+    final hasPermission = await _healthService.hasPermissions();
+    if (mounted) {
+      setState(() {
+        _hasPermission = hasPermission;
+        _isChecking = false;
+      });
+      widget.onPermissionChanged(hasPermission);
+    }
+  }
+
+  Future<void> _requestPermission() async {
+    setState(() => _isChecking = true);
+    final granted = await _healthService.requestAuthorization();
+    if (mounted) {
+      setState(() {
+        _hasPermission = granted;
+        _isChecking = false;
+      });
+      widget.onPermissionChanged(granted);
+      print('🏥 Health permission requested: $granted');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Health Data Sync', style: AppTextStyles.title2),
+          const SizedBox(height: 8),
+          const Text(
+            'Connect to Apple Health or Google Health Connect to automatically sync your measurements',
+            style: TextStyle(color: AppColors.textSecondary, fontFamily: 'Nunito'),
+          ),
+          const SizedBox(height: 32),
+          
+          // Health icon
+          Center(
+            child: Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                gradient: AppGradients.brand,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: AppShadows.primaryGlow,
+              ),
+              child: const Icon(Icons.favorite, color: Colors.white, size: 50),
+            ),
+          ),
+          const SizedBox(height: 32),
+          
+          // Benefits
+          const Text(
+            'Benefits:',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'Nunito',
+            ),
+          ),
+          const SizedBox(height: 16),
+          _BenefitItem(icon: Icons.sync, text: 'Automatic weight tracking'),
+          _BenefitItem(icon: Icons.timeline, text: 'Body fat percentage history'),
+          _BenefitItem(icon: Icons.show_chart, text: 'Comprehensive progress charts'),
+          _BenefitItem(icon: Icons.lock, text: 'Your data stays private and secure'),
+          const SizedBox(height: 32),
+          
+          if (_hasPermission == null || !_hasPermission!)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.darkCardBackground,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: AppColors.brandPrimary, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _hasPermission == null
+                          ? 'Checking permission status...'
+                          : 'You can enable this later in Settings',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        fontFamily: 'Nunito',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+          if (_hasPermission == true)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.successGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.successGreen.withOpacity(0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: AppColors.successGreen, size: 20),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Health data access granted! We\'ll sync your data automatically.',
+                      style: TextStyle(
+                        color: AppColors.successGreen,
+                        fontSize: 13,
+                        fontFamily: 'Nunito',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BenefitItem extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  
+  const _BenefitItem({required this.icon, required this.text});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.brandPrimary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: AppColors.brandPrimary, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                fontFamily: 'Nunito',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FormField extends StatefulWidget {
   final String label;
   final String initialValue;
   final TextInputType? keyboardType;
@@ -391,19 +631,47 @@ class _FormField extends StatelessWidget {
   });
 
   @override
+  State<_FormField> createState() => _FormFieldState();
+}
+
+class _FormFieldState extends State<_FormField> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void didUpdateWidget(_FormField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update controller if initialValue changes and field is empty
+    if (widget.initialValue != oldWidget.initialValue && _controller.text.isEmpty) {
+      _controller.text = widget.initialValue;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return TextFormField(
-      initialValue: initialValue,
-      keyboardType: keyboardType,
-      onChanged: onChanged,
-      enabled: enabled,
+      controller: _controller,
+      keyboardType: widget.keyboardType,
+      onChanged: widget.onChanged,
+      enabled: widget.enabled,
       style: TextStyle(
-        color: enabled ? AppColors.textPrimary : AppColors.textSecondary, 
+        color: widget.enabled ? AppColors.textPrimary : AppColors.textSecondary, 
         fontFamily: 'Nunito'
       ),
       decoration: InputDecoration(
-        labelText: label,
-        helperText: helperText,
+        labelText: widget.label,
+        helperText: widget.helperText,
         helperStyle: const TextStyle(
           color: AppColors.textTertiary, 
           fontSize: 12, 

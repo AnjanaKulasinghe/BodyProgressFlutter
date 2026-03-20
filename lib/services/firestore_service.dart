@@ -312,19 +312,27 @@ class FirestoreService {
   // ── Batch Delete (account deletion) ─────────────────────────────────────
 
   Future<void> batchDeleteUserData(String userId) async {
+    print('🗑️ Firestore: Querying body stats for userId: $userId');
     // Delete body stats and user profile
     final statsDocs = await _bodyStats.where('userId', isEqualTo: userId).get();
+    print('🗑️ Firestore: Found ${statsDocs.docs.length} body stats documents');
+    
+    print('🗑️ Firestore: Querying user profile for userId: $userId');
     final userDocs = await _users.where('userId', isEqualTo: userId).get();
+    print('🗑️ Firestore: Found ${userDocs.docs.length} user profile documents');
 
     final batch = _db.batch();
     for (final d in statsDocs.docs)  batch.delete(d.reference);
     for (final d in userDocs.docs)   batch.delete(d.reference);
     
+    print('🗑️ Firestore: Committing batch delete (${statsDocs.docs.length + userDocs.docs.length} documents)...');
     await batch.commit().timeout(
       const Duration(seconds: 30),
       onTimeout: () {
+        print('❌ Firestore: Batch delete timed out');
         throw TimeoutException('Failed to delete user data - operation timed out');
       },
     );
+    print('✅ Firestore: Batch delete committed successfully');
   }
 }

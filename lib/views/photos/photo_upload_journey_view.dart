@@ -29,8 +29,6 @@ class _PhotoUploadJourneyViewState extends ConsumerState<PhotoUploadJourneyView>
     PhotoType.back: null,
     PhotoType.custom: null,
   };
-  String _weight = '';
-  String _notes = '';
 
   final List<_PhotoStep> _steps = [
     _PhotoStep(
@@ -135,47 +133,89 @@ class _PhotoUploadJourneyViewState extends ConsumerState<PhotoUploadJourneyView>
       return;
     }
 
+    // Capture navigator before async gap
+    if (!mounted) return;
+    final navigator = Navigator.of(context, rootNavigator: true);
+
     // Show loading
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(color: AppColors.brandPrimary),
+      useRootNavigator: true,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: const Center(
+          child: CircularProgressIndicator(color: AppColors.brandPrimary),
+        ),
       ),
     );
 
-    bool allSuccess = true;
-    for (final entry in photosToUpload) {
-      // Upload photo using the new method that accepts file directly
-      final file = File(entry.value!.path);
-      final success = await notifier.uploadPhotoFromFile(
-        file,
-        entry.key,
-        _selectedDate,
-        _weight,
-        _notes,
-      );
-      
-      if (!success) {
-        allSuccess = false;
-        break;
+    try {
+      bool allSuccess = true;
+      for (final entry in photosToUpload) {
+        // Upload photo using the new method that accepts file directly
+        final file = File(entry.value!.path);
+        final success = await notifier.uploadPhotoFromFile(
+          file,
+          entry.key,
+          _selectedDate,
+          '',
+          '',
+        );
+        
+        if (!success) {
+          allSuccess = false;
+          break;
+        }
       }
-    }
 
-    if (mounted) {
-      Navigator.of(context).pop(); // Close loading dialog
+      // Wait a frame to ensure dialog is fully rendered
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      if (mounted) {
+        // Close loading dialog
+        navigator.pop();
+        
+        // Wait for dialog to fully dismiss
+        await Future.delayed(const Duration(milliseconds: 200));
+        
+        if (mounted) {
+          if (allSuccess) {
+            ToastManager.shared.show(
+              'Photos uploaded successfully!',
+              type: ToastType.success,
+            );
+            context.pop(); // Return to photos view
+          } else {
+            ToastManager.shared.show(
+              'Failed to upload some photos',
+              type: ToastType.error,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Error uploading photos: $e');
       
-      if (allSuccess) {
-        ToastManager.shared.show(
-          'Photos uploaded successfully!',
-          type: ToastType.success,
-        );
-        context.pop(); // Return to photos view
-      } else {
-        ToastManager.shared.show(
-          'Failed to upload some photos',
-          type: ToastType.error,
-        );
+      // Wait before dismissing on error
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      if (mounted) {
+        try {
+          navigator.pop();
+          
+          // Wait for dialog to dismiss
+          await Future.delayed(const Duration(milliseconds: 200));
+          
+          if (mounted) {
+            ToastManager.shared.show(
+              'Upload failed: ${e.toString()}',
+              type: ToastType.error,
+            );
+          }
+        } catch (_) {
+          // Dialog might already be gone
+        }
       }
     }
   }
@@ -275,10 +315,6 @@ class _PhotoUploadJourneyViewState extends ConsumerState<PhotoUploadJourneyView>
                   return _DateSelectionStep(
                     selectedDate: _selectedDate,
                     onDateChanged: (date) => setState(() => _selectedDate = date),
-                    weight: _weight,
-                    onWeightChanged: (value) => setState(() => _weight = value),
-                    notes: _notes,
-                    onNotesChanged: (value) => setState(() => _notes = value),
                   );
                 } else {
                   return _PhotoCaptureStep(
@@ -363,18 +399,10 @@ class _PhotoStep {
 class _DateSelectionStep extends StatelessWidget {
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateChanged;
-  final String weight;
-  final ValueChanged<String> onWeightChanged;
-  final String notes;
-  final ValueChanged<String> onNotesChanged;
 
   const _DateSelectionStep({
     required this.selectedDate,
     required this.onDateChanged,
-    required this.weight,
-    required this.onWeightChanged,
-    required this.notes,
-    required this.onNotesChanged,
   });
 
   @override
@@ -401,7 +429,7 @@ class _DateSelectionStep extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Select the date for your progress photos. You can also add your weight and notes.',
+            'Select the date for your progress photos.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 16,
@@ -477,35 +505,6 @@ class _DateSelectionStep extends StatelessWidget {
                 ],
               ),
             ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Weight input (optional)
-          TextField(
-            style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
-            decoration: InputDecoration(
-              labelText: 'Weight (optional)',
-              hintText: 'e.g., 75.5',
-              suffixText: 'kg',
-              prefixIcon: const Icon(Icons.monitor_weight_outlined, color: AppColors.brandPrimary),
-            ),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            onChanged: onWeightChanged,
-          ),
-
-          const SizedBox(height: 16),
-
-          // Notes input (optional)
-          TextField(
-            style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Nunito'),
-            decoration: const InputDecoration(
-              labelText: 'Notes (optional)',
-              hintText: 'Add any notes about your progress...',
-              prefixIcon: Icon(Icons.note_outlined, color: AppColors.brandPrimary),
-            ),
-            maxLines: 3,
-            onChanged: onNotesChanged,
           ),
         ],
       ),

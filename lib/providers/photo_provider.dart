@@ -289,6 +289,11 @@ class PhotoNotifier extends StateNotifier<PhotoState> {
 
   List<PhotoMetadata> photosByTypeFilter(PhotoType type) =>
       state.photos.where((p) => p.photoType == type).toList();
+
+  /// Reset provider to initial state (called on sign out)
+  void reset() {
+    state = PhotoState(photoDate: DateTime.now());
+  }
 }
 
 final photoProvider = StateNotifierProvider<PhotoNotifier, PhotoState>(

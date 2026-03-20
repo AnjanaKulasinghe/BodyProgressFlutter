@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:body_progress/core/design_system.dart';
 import 'package:body_progress/core/toast_manager.dart';
 import 'package:body_progress/models/body_stats.dart';
@@ -61,19 +62,27 @@ class ProgressView extends ConsumerWidget {
                     return;
                   }
                   
+                  // Save permission granted flag
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('healthPermissionGranted', true);
+                  
                   ToastManager.shared.show(
                     'Health access granted! Starting sync...',
                     type: ToastType.success,
                   );
                 }
                 
+                // Capture context before async gap
+                if (!context.mounted) return;
+                final navigator = Navigator.of(context, rootNavigator: true);
+                
                 // Show loading dialog and perform sync
-                final navigator = Navigator.of(context);
                 showDialog(
                   context: context,
                   barrierDismissible: false,
-                  builder: (dialogContext) => WillPopScope(
-                    onWillPop: () async => false,
+                  useRootNavigator: true,
+                  builder: (dialogContext) => PopScope(
+                    canPop: false,
                     child: AlertDialog(
                       backgroundColor: AppColors.cardBackground,
                       content: Column(
@@ -100,47 +109,55 @@ class ProgressView extends ConsumerWidget {
                   ),
                 );
                 
-                // Perform sync
-                final result = await notifier.syncWithHealth();
-                
-                // Safely dismiss loading dialog and show result using post-frame callback
-                if (context.mounted) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                try {
+                  // Perform sync
+                  final result = await notifier.syncWithHealth();
+                  
+                  // Wait a frame to ensure dialog is fully rendered
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  
+                  // Safely dismiss loading dialog
+                  if (context.mounted) {
+                    navigator.pop();
+                    
+                    // Wait for dialog to fully dismiss before showing toast
+                    await Future.delayed(const Duration(milliseconds: 200));
+                    
                     if (context.mounted) {
-                      try {
-                        navigator.pop();
-                      } catch (e) {
-                        // Dialog already dismissed or navigator disposed
-                      }
-                      
-                      // Show result after dialog is dismissed
                       ToastManager.shared.show(
                         result.errorMessage ?? 'Synced ${result.uploadedCount} entries',
                         type: result.errorMessage != null ? ToastType.error : ToastType.success,
                       );
                     }
-                  });
+                  }
+                } catch (e) {
+                  print('Error syncing health data: $e');
+                  
+                  // Wait a frame before dismissing on error
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  
+                  // Safely dismiss loading dialog and show error
+                  if (context.mounted) {
+                    try {
+                      navigator.pop();
+                      
+                      // Wait for dialog to dismiss
+                      await Future.delayed(const Duration(milliseconds: 200));
+                      
+                      if (context.mounted) {
+                        ToastManager.shared.show(
+                          'Sync failed: ${e.toString()}',
+                          type: ToastType.error,
+                        );
+                      }
+                    } catch (_) {
+                      // Dialog might already be gone
+                    }
+                  }
                 }
               } catch (e) {
-                print('Error syncing health data: $e');
-                // Safely dismiss loading dialog and show error using post-frame callback
-                if (context.mounted) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (context.mounted) {
-                      try {
-                        Navigator.of(context).pop();
-                      } catch (_) {
-                        // Dialog already dismissed or navigator disposed
-                      }
-                      
-                      // Show error after dialog is dismissed
-                      ToastManager.shared.show(
-                        'Sync failed: ${e.toString()}',
-                        type: ToastType.error,
-                      );
-                    }
-                  });
-                }
+                print('Error in health sync setup: $e');
+                ToastManager.shared.show('Sync failed: $e', type: ToastType.error);
               }
             },
           ),

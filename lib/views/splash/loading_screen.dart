@@ -3,10 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:body_progress/core/design_system.dart';
 import 'package:body_progress/core/router.dart';
 import 'package:body_progress/providers/auth_provider.dart';
 import 'package:body_progress/providers/app_init_provider.dart';
+import 'package:body_progress/providers/progress_provider.dart';
 
 /// Premium animated splash / loading screen matching iOS design
 class LoadingScreen extends ConsumerStatefulWidget {
@@ -32,6 +34,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
 
   double _loadingProgress = 0.0;
   int _currentStepIndex = 0;
+  String? _slowNetworkMessage;
   
   final List<String> _loadingSteps = [
     'Initializing app...',
@@ -39,6 +42,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
     'Syncing data...',
     'Loading stats...',
     'Loading photos...',
+    'Syncing health data...',
     'Almost ready...'
   ];
 
@@ -107,8 +111,35 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
     super.dispose();
   }
 
+  /// Check health permission in background with timeout
+  Future<bool> _checkHealthPermission(SharedPreferences prefs) async {
+    var healthPermissionGranted = prefs.getBool('healthPermissionGranted') ?? false;
+    
+    if (!healthPermissionGranted) {
+      try {
+        final healthService = ref.read(progressProvider.notifier).healthService;
+        final hasPermission = await healthService.hasPermissions().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            print('⚠️  Health permission check timed out');
+            return false;
+          },
+        );
+        if (hasPermission) {
+          await prefs.setBool('healthPermissionGranted', true);
+          healthPermissionGranted = true;
+        }
+      } catch (e) {
+        print('⚠️  Health permission check error: $e');
+      }
+    }
+    
+    return healthPermissionGranted;
+  }
+
   Future<void> _startLoading() async {
     try {
+      final startTime = DateTime.now();
       await Future.delayed(const Duration(milliseconds: 800));
 
       final authState = ref.read(authProvider);
@@ -117,51 +148,108 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
         return;
       }
 
-      // Step 1: Initialize - 10%
       _updateProgress(0.1, 0);
-      await Future.delayed(const Duration(milliseconds: 400));
 
-      // Step 2: User data - 25%
-      _updateProgress(0.25, 1);
-      await Future.delayed(const Duration(milliseconds: 400));
-
-      // Step 3: Starting sync - 35%
-      _updateProgress(0.35, 2);
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      // Step 4: Begin actual data loading - 45%
-      _updateProgress(0.45, 3);
+      // ══════════════════════════════════════════════════════════════════════
+      // PARALLEL LOADING: Start all checks in background simultaneously
+      // ══════════════════════════════════════════════════════════════════════
       
-      // CRITICAL: Actually wait for all data to load with proper timeout
+      final prefs = await SharedPreferences.getInstance();
+      final hasSeenTutorial = prefs.getBool('hasSeenTutorialOnDevice') ?? false;
+      
+      // Start slow network warning timer (show after 5 seconds)
+      Timer? slowNetworkTimer;
+      slowNetworkTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) {
+          setState(() {
+            _slowNetworkMessage = "We're experiencing slow network speeds.\nHang on, we're working as fast as possible to load all your data!";
+          });
+        }
+      });
+      
+      // Start all heavy operations in parallel
+      final healthCheckFuture = _checkHealthPermission(prefs);
+      final hasProfileFuture = authState.user?.uid != null 
+          ? ref.read(authProvider.notifier).hasUserProfile()
+          : Future.value(false);
+      final dataLoadFuture = ref.read(appInitProvider.notifier).initializeAppData();
+
+      _updateProgress(0.3, 1);
+
+      // Wait for all critical data (with 12 second timeout for parallel operations)
       try {
-        await ref.read(appInitProvider.notifier).initializeAppData().timeout(
-          const Duration(seconds: 30),
+        final results = await Future.wait([
+          healthCheckFuture,
+          hasProfileFuture,
+          dataLoadFuture,
+        ]).timeout(
+          const Duration(seconds: 12),
           onTimeout: () {
-            print('Data loading timed out after 30s');
-            throw TimeoutException('Failed to load data');
+            print('⚠️  Parallel loading timed out after 12s');
+            return [false, false, null];
           },
         );
         
-        // Data loaded successfully
-        _updateProgress(0.7, 4);
+        final healthPermissionGranted = results[0] as bool;
+        final hasProfile = results[1] as bool;
+        
+        _updateProgress(0.6, 3);
+        print('🏥 Health permission: $healthPermissionGranted');
+
+        // Optional: Quick health sync if permission granted (skip if taking too long)
+        if (healthPermissionGranted) {
+          _updateProgress(0.7, 5);
+          try {
+            final progressNotifier = ref.read(progressProvider.notifier);
+            await progressNotifier.syncWithHealth(years: 1).timeout(
+              const Duration(seconds: 2),
+              onTimeout: () {
+                print('⏭️  Health sync skipped - taking too long');
+                return HealthSyncResult(uploadedCount: 0, skippedCount: 0);
+              },
+            );
+          } catch (e) {
+            print('⏭️  Health sync skipped: $e');
+          }
+        }
+
+        _updateProgress(0.9, 6);
+
+        // Cancel slow network timer - loading complete!
+        slowNetworkTimer?.cancel();
+
+        // Ensure minimum 5 seconds for smooth UX (avoid jarring quick flashes)
+        final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
+        final minLoadingMs = 5000;
+        if (elapsedMs < minLoadingMs) {
+          await Future.delayed(Duration(milliseconds: minLoadingMs - elapsedMs));
+        }
+
+        _updateProgress(1.0, 6);
         await Future.delayed(const Duration(milliseconds: 300));
+
+        // Navigate based on user flow
+        if (mounted) {
+          if (!hasSeenTutorial && hasProfile) {
+            context.go(AppRoutes.tutorial);
+          } else {
+            context.go(AppRoutes.home);
+          }
+        }
         
       } catch (e) {
-        print('Data loading error: $e');
-        // Continue anyway but show progress
-        _updateProgress(0.6, 3);
-        await Future.delayed(const Duration(milliseconds: 400));
+        print('❌ Loading error: $e');
+        slowNetworkTimer?.cancel();
+        _updateProgress(0.8, 6);
+        
+        // Still ensure minimum time
+        final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
+        if (elapsedMs < 5000) {
+          await Future.delayed(Duration(milliseconds: 5000 - elapsedMs));
+        }
+        
+        if (mounted) context.go(AppRoutes.home);
       }
-
-      // Step 5: Finalizing - 90%
-      _updateProgress(0.9, 5);
-      await Future.delayed(const Duration(milliseconds: 400));
-
-      // Step 6: Complete - 100%
-      _updateProgress(1.0, 5);
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (mounted) context.go(AppRoutes.home);
     } catch (e) {
       print('Loading screen error: $e');
       if (mounted) context.go(AppRoutes.home);
@@ -495,6 +583,24 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                   ),
                 ],
               ),
+              // Slow network message (appears after 5 seconds)
+              if (_slowNetworkMessage != null) ...[
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Text(
+                    _slowNetworkMessage!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white.withOpacity(0.8),
+                      fontFamily: 'Nunito',
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ],

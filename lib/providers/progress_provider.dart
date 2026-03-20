@@ -237,6 +237,11 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
     
     return result;
   }
+
+  /// Reset provider to initial state (called on sign out)
+  void reset() {
+    state = const ProgressState();
+  }
 }
 
 final progressProvider = StateNotifierProvider<ProgressNotifier, ProgressState>(

@@ -104,6 +104,11 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
   void setEditing(bool v)                 => state = state.copyWith(isEditing: v);
   void clearError()                       => state = state.copyWith(clearError: true);
 
+  /// Reset provider to initial state (called on sign out)
+  void reset() {
+    state = ProfileState(dateOfBirth: DateTime.now().subtract(const Duration(days: 365 * 25)));
+  }
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   Future<void> loadProfile() async {
@@ -115,8 +120,9 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
     try {
       final hasProfile = await _firestoreService.hasUserProfile(uid);
       if (!hasProfile) {
-        // Pre-populate from Firebase Auth (includes Sign in with Apple data)
-        state = state.copyWith(
+        // Pre-populate from Firebase Auth - RESET all other fields to defaults
+        state = ProfileState(
+          dateOfBirth: DateTime.now().subtract(const Duration(days: 365 * 25)),
           isNewProfile: true,
           name: user?.displayName ?? '',
           email: user?.email ?? '',

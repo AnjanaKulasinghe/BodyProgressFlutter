@@ -60,14 +60,23 @@ class _PhotosViewState extends ConsumerState<PhotosView>
             onPressed: () => context.go(AppRoutes.photoUpload),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: _types.map((t) => Tab(text: t.displayName)).toList(),
-          isScrollable: true,
-          indicatorColor: AppColors.brandPrimary,
-          labelColor: AppColors.brandPrimary,
-          unselectedLabelColor: AppColors.textSecondary,
-          dividerColor: Colors.transparent,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TabBar(
+              controller: _tabController,
+              tabs: _types.map((t) => Tab(text: t.displayName)).toList(),
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              indicatorColor: AppColors.brandPrimary,
+              labelColor: AppColors.brandPrimary,
+              unselectedLabelColor: AppColors.textSecondary,
+              dividerColor: Colors.transparent,
+              padding: EdgeInsets.zero,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 16),
+            ),
+          ),
         ),
       ),
       body: photoState.isLoading
@@ -318,13 +327,16 @@ class _EmptyPhotoState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 80, height: 80,
-            decoration: BoxDecoration(
-              color: AppColors.brandPrimary.withOpacity(0.1),
-              shape: BoxShape.circle,
+          GestureDetector(
+            onTap: () => context.go(AppRoutes.photoUpload),
+            child: Container(
+              width: 80, height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.brandPrimary.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.add_a_photo_outlined, color: AppColors.brandPrimary, size: 36),
             ),
-            child: const Icon(Icons.add_a_photo_outlined, color: AppColors.brandPrimary, size: 36),
           ),
           const SizedBox(height: 16),
           Text('No ${type.displayName} photos yet',

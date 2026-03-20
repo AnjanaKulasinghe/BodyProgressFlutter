@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:body_progress/models/user_profile.dart';
@@ -213,12 +214,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
     try {
+      debugPrint('[AuthProvider] Checking profile for uid: $uid');
       final result = await _firestoreService.hasUserProfile(uid).timeout(
-        const Duration(seconds: 8),
+        const Duration(seconds: 20),
         onTimeout: () {
+          debugPrint('[AuthProvider] hasUserProfile timeout after 20s');
           return false;
         },
       );
+      debugPrint('[AuthProvider] hasUserProfile result: $result');
       return result;
     } catch (e) {
       return false;

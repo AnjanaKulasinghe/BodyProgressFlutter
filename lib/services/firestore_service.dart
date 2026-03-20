@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:body_progress/models/user_profile.dart';
 import 'package:body_progress/models/body_stats.dart';
@@ -64,20 +65,28 @@ class FirestoreService {
     
     while (true) {
       try {
-        return await operation();
+        debugPrint('[Firestore] $operationName: attempt ${retryCount + 1}/${maxRetries + 1}');
+        final result = await operation();
+        if (retryCount > 0) {
+          debugPrint('[Firestore] $operationName: succeeded after $retryCount retries');
+        }
+        return result;
       } on FirebaseException catch (e) {
         final isNetworkError = e.code == 'unavailable' || 
                               e.code == 'deadline-exceeded' ||
                               e.code == 'cancelled';
         
         if (!isNetworkError || retryCount >= maxRetries) {
+          debugPrint('[Firestore] $operationName: failed after ${retryCount + 1} attempts - ${e.code}: ${e.message}');
           rethrow;
         }
         
         retryCount++;
         final delayMs = (100 * (1 << retryCount)); // 200ms, 400ms, 800ms
+        debugPrint('[Firestore] $operationName: network error (${e.code}), retrying in ${delayMs}ms...');
         await Future.delayed(Duration(milliseconds: delayMs));
       } catch (e) {
+        debugPrint('[Firestore] $operationName: unexpected error - $e');
         rethrow;
       }
     }
@@ -104,8 +113,9 @@ class FirestoreService {
       final result = await _retryOperation(
         operation: () async {
           final doc = await _users.doc(userId).get().timeout(
-            const Duration(seconds: 5),
+            const Duration(seconds: 15),
             onTimeout: () {
+              debugPrint('[Firestore] getUserProfile timeout after 15s');
               throw TimeoutException('getUserProfile query timeout');
             },
           );
@@ -145,8 +155,9 @@ class FirestoreService {
       final result = await _retryOperation(
         operation: () async {
           final doc = await _users.doc(userId).get().timeout(
-            const Duration(seconds: 5),
+            const Duration(seconds: 15),
             onTimeout: () {
+              debugPrint('[Firestore] hasUserProfile timeout after 15s');
               throw TimeoutException('hasUserProfile query timeout');
             },
           );
@@ -182,12 +193,25 @@ class FirestoreService {
   }
 
   Future<List<BodyStats>> getBodyStats(String userId, {int limit = 100}) async {
-    final q = await _bodyStats
-        .where('userId', isEqualTo: userId)
-        .orderBy('date', descending: true)
-        .limit(limit)
-        .get();
-    return q.docs.map(BodyStats.fromFirestore).toList();
+    try {
+      return await _retryOperation(
+        operation: () async {
+          debugPrint('[Firestore] getBodyStats: fetching $limit records for $userId');
+          final q = await _bodyStats
+              .where('userId', isEqualTo: userId)
+              .orderBy('date', descending: true)
+              .limit(limit)
+              .get();
+          final stats = q.docs.map(BodyStats.fromFirestore).toList();
+          debugPrint('[Firestore] getBodyStats: loaded ${stats.length} records');
+          return stats;
+        },
+        operationName: 'getBodyStats',
+      );
+    } catch (e) {
+      debugPrint('[Firestore] getBodyStats error: $e, returning empty list');
+      return [];
+    }
   }
 
   Future<List<BodyStats>> getBodyStatsInRange(
@@ -266,12 +290,25 @@ class FirestoreService {
       _photos.add(photo.toFirestore());
 
   Future<List<PhotoMetadata>> getPhotoMetadata(String userId, {int limit = 50}) async {
-    final q = await _photos
-        .where('userId', isEqualTo: userId)
-        .orderBy('date', descending: true)
-        .limit(limit)
-        .get();
-    return q.docs.map(PhotoMetadata.fromFirestore).toList();
+    try {
+      return await _retryOperation(
+        operation: () async {
+          debugPrint('[Firestore] getPhotoMetadata: fetching $limit records for $userId');
+          final q = await _photos
+              .where('userId', isEqualTo: userId)
+              .orderBy('date', descending: true)
+              .limit(limit)
+              .get();
+          final photos = q.docs.map(PhotoMetadata.fromFirestore).toList();
+          debugPrint('[Firestore] getPhotoMetadata: loaded ${photos.length} records');
+          return photos;
+        },
+        operationName: 'getPhotoMetadata',
+      );
+    } catch (e) {
+      debugPrint('[Firestore] getPhotoMetadata error: $e, returning empty list');
+      return [];
+    }
   }
 
   Future<List<PhotoMetadata>> getPhotoMetadataByType(

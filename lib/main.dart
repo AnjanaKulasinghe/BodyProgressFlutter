@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -57,6 +58,12 @@ void main() async {
     print('Initializing Firebase...');
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        print('⚠️  Firebase initialization timed out after 30s');
+        throw TimeoutException('Firebase initialization timeout');
+      },
     );
     print('Firebase initialized');
 
@@ -68,9 +75,9 @@ void main() async {
     );
     try {
       await firestore.enableNetwork().timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 15),
         onTimeout: () {
-          print('⚠️  Firestore network enable timed out');
+          print('⚠️  Firestore network enable timed out after 15s');
         },
       );
     } catch (e) {

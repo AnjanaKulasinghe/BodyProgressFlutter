@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:body_progress/providers/auth_provider.dart';
 import 'package:body_progress/providers/profile_provider.dart';
@@ -50,16 +51,32 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
       }
 
       // Load all data in parallel for maximum speed
+      debugPrint('[AppInit] Starting parallel data load (profile, stats, photos)...');
       await Future.wait([
-        _ref.read(profileProvider.notifier).loadProfile(),
-        _ref.read(progressProvider.notifier).loadAndCacheBodyStats(),
-        _ref.read(photoProvider.notifier).loadPhotos(),
+        _ref.read(profileProvider.notifier).loadProfile().then((_) {
+          debugPrint('[AppInit] ✓ Profile loaded');
+        }),
+        _ref.read(progressProvider.notifier).loadAndCacheBodyStats().then((_) {
+          debugPrint('[AppInit] ✓ Body stats loaded');
+        }),
+        _ref.read(photoProvider.notifier).loadPhotos().then((_) {
+          debugPrint('[AppInit] ✓ Photos loaded');
+        }),
       ], eagerError: false); // Continue even if some operations fail
+      
+      debugPrint('[AppInit] All parallel operations completed');
       
       // Only recalculate achievements if profile exists
       final hasProfile = _ref.read(profileProvider).profile != null;
       if (hasProfile) {
-        await _ref.read(achievementProvider.notifier).recalculateAllAchievements();
+        debugPrint('[AppInit] Recalculating achievements...');
+        await _ref.read(achievementProvider.notifier).recalculateAllAchievements().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            debugPrint('[AppInit] Achievement calculation timeout after 10s, skipping');
+          },
+        );
+        debugPrint('[AppInit] ✓ Achievements recalculated');
       }
 
       state = state.copyWith(isInitialized: true, isLoading: false);

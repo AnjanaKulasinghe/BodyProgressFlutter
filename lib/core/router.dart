@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -50,41 +51,51 @@ GoRouter createRouter(WidgetRef ref) {
     refreshListenable: authNotifier,
     redirect: (context, state) async {
       try {
-        final path = state.matchedLocation;
+        // Add timeout to entire redirect logic to prevent hanging
+        return await Future.microtask(() async {
+          final path = state.matchedLocation;
 
-        // Always allow splash, tutorial, and loading-related routes
-        if (path == AppRoutes.splash || path == AppRoutes.tutorial) return null;
+          // Always allow splash, tutorial, and loading-related routes
+          if (path == AppRoutes.splash || path == AppRoutes.tutorial) return null;
 
-        // Use the stream-based provider to get a fresh auth state
-        final authStream = ref.read(authStreamProvider);
-        final user = authStream.valueOrNull;
-        final isAuthenticated = user != null;
+          // Use the stream-based provider to get a fresh auth state
+          final authStream = ref.read(authStreamProvider);
+          final user = authStream.valueOrNull;
+          final isAuthenticated = user != null;
 
-        // Redirect to auth if not authenticated
-        if (!isAuthenticated) return AppRoutes.auth;
+          // Redirect to auth if not authenticated
+          if (!isAuthenticated) return AppRoutes.auth;
 
-        // Check if user has a profile in Firestore
-        final authNotifier = ref.read(authProvider.notifier);
-        final hasProfile = await authNotifier.hasUserProfile();
-        
-        // If user has a profile, they can access the app
-        if (hasProfile) {
-          // Existing user - skip onboarding and profile setup
-          if (path == AppRoutes.onboarding || path == AppRoutes.profileSetup) {
-            return AppRoutes.splash; // Go to loading screen to load data
+          // Check if user has a profile in Firestore
+          final authNotifier = ref.read(authProvider.notifier);
+          final hasProfile = await authNotifier.hasUserProfile();
+          
+          // If user has a profile, they can access the app
+          if (hasProfile) {
+            // Existing user - skip onboarding and profile setup
+            if (path == AppRoutes.onboarding || path == AppRoutes.profileSetup) {
+              return AppRoutes.splash; // Go to loading screen to load data
+            }
+            if (path == AppRoutes.auth || path == AppRoutes.verifyEmail) {
+              return AppRoutes.splash; // Go to loading screen to load data
+            }
+            return null; // Allow access to requested route
           }
-          if (path == AppRoutes.auth || path == AppRoutes.verifyEmail) {
-            return AppRoutes.splash; // Go to loading screen to load data
-          }
-          return null; // Allow access to requested route
-        }
 
-        // New user flow - no onboarding, just profile setup then loading
-        if (path == AppRoutes.profileSetup) return null; // Allow profile setup
-        
-        // If trying to access protected routes without profile, redirect to profile setup
-        return AppRoutes.profileSetup;
+          // New user flow - no onboarding, just profile setup then loading
+          if (path == AppRoutes.profileSetup) return null; // Allow profile setup
+          
+          // If trying to access protected routes without profile, redirect to profile setup
+          return AppRoutes.profileSetup;
+        }).timeout(
+          const Duration(seconds: 25),
+          onTimeout: () {
+            debugPrint('[Router] Redirect timeout after 25s, going to auth');
+            return AppRoutes.auth;
+          },
+        );
       } catch (e) {
+        debugPrint('[Router] Redirect error: $e');
         return AppRoutes.auth;
       }
     },

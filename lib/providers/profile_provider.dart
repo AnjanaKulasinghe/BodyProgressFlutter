@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:body_progress/models/user_profile.dart';
 import 'package:body_progress/models/body_stats.dart';
@@ -119,8 +120,12 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
       return;
     }
 
+    debugPrint('[ProfileProvider] Loading profile for uid: $uid');
+
     try {
       final hasProfile = await _firestoreService.hasUserProfile(uid);
+      
+      debugPrint('[ProfileProvider] hasUserProfile result: $hasProfile');
       
       if (!hasProfile) {
         // Pre-populate from Firebase Auth - RESET all other fields to defaults
@@ -130,12 +135,14 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
           name: user?.displayName ?? '',
           email: user?.email ?? '',
         );
+        debugPrint('[ProfileProvider] Created new profile state');
         return;
       }
 
       state = state.copyWith(isLoading: true);
       final profile = await _firestoreService.getUserProfile(uid);
       if (profile != null) {
+        debugPrint('[ProfileProvider] Profile loaded: ${profile.name}');
         state = state.copyWith(
           profile: profile,
           isLoading: false,
@@ -150,9 +157,11 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
           targetWeight: profile.targetWeight?.toStringAsFixed(1) ?? '',
         );
       } else {
+        debugPrint('[ProfileProvider] Profile was null');
         state = state.copyWith(isLoading: false, isNewProfile: true);
       }
     } catch (e) {
+      debugPrint('[ProfileProvider] loadProfile error: $e');
       state = state.copyWith(
         isLoading: false, 
         errorMessage: 'Error loading profile: ${e.toString()}', 

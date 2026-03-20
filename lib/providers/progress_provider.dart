@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:body_progress/models/body_stats.dart';
 import 'package:body_progress/models/user_profile.dart';
@@ -111,7 +112,20 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
     final uid = _uid;
     if (uid == null) return Duration.zero;
     final start = DateTime.now();
-    final stats = await _firestoreService.getBodyStats(uid, limit: 1000);
+    
+    debugPrint('[ProgressProvider] Loading body stats for uid: $uid');
+    
+    // Use smaller limit on cold start to prevent hanging
+    final stats = await _firestoreService.getBodyStats(uid, limit: 500).timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        debugPrint('[ProgressProvider] getBodyStats timeout after 15s, returning empty list');
+        return <BodyStats>[];
+      },
+    );
+    
+    debugPrint('[ProgressProvider] Loaded ${stats.length} body stats in ${DateTime.now().difference(start).inMilliseconds}ms');
+    
     // Explicitly sort descending (newest first) for display
     stats.sort((a, b) => b.date.compareTo(a.date));
     state = state.copyWith(

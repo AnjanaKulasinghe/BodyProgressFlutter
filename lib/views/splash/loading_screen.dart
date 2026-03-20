@@ -171,11 +171,14 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   Future<void> _startLoading() async {
     try {
       final startTime = DateTime.now();
+      debugPrint('[LoadingScreen] Starting load at ${startTime.toIso8601String()}');
       await Future.delayed(const Duration(milliseconds: 800));
 
       final authState = ref.read(authProvider);
+      debugPrint('[LoadingScreen] Auth state: ${authState.isAuthenticated}');
       
       if (!authState.isAuthenticated || !authState.canProceed) {
+        debugPrint('[LoadingScreen] Not authenticated, redirecting to auth');
         if (mounted) {
           _loadingComplete = true;
           context.go(AppRoutes.auth);
@@ -186,8 +189,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       _updateProgress(0.1, 0); // Step 0: Initializing app...
 
       // PARALLEL LOADING: Start all checks in background simultaneously
+      debugPrint('[LoadingScreen] Loading SharedPreferences...');
       final prefs = await SharedPreferences.getInstance().timeout(
-        const Duration(seconds: 3),
+        const Duration(seconds: 10),
         onTimeout: () => throw TimeoutException('SharedPreferences timeout'),
       );
       final hasSeenTutorial = prefs.getBool('hasSeenTutorialOnDevice') ?? false;
@@ -205,6 +209,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       });
       
       // Start all heavy operations in parallel
+      debugPrint('[LoadingScreen] Starting parallel operations...');
       final healthCheckFuture = _checkHealthPermission(prefs);
       final hasProfileFuture = authState.user?.uid != null 
           ? ref.read(authProvider.notifier).hasUserProfile()
@@ -213,16 +218,22 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
 
       _updateProgress(0.3, 2); // Step 2: Syncing data...
 
-      // Wait for all critical data (with 8 second timeout for parallel operations)
+      // Wait for all critical data (increased timeout for production/release builds)
       try {
+        debugPrint('[LoadingScreen] Waiting for parallel operations (20s timeout)...');
         final results = await Future.wait([
           healthCheckFuture,
           hasProfileFuture,
           dataLoadFuture,
         ]).timeout(
-          const Duration(seconds: 8),
-          onTimeout: () => [false, false, null],
+          const Duration(seconds: 20),
+          onTimeout: () {
+            debugPrint('[LoadingScreen] Parallel operations timed out after 20s!');
+            return [false, false, null];
+          },
         );
+        
+        debugPrint('[LoadingScreen] Parallel operations completed!');
         
         final healthPermissionGranted = results[0] as bool;
         final hasProfile = results[1] as bool;
@@ -238,7 +249,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
           try {
             final progressNotifier = ref.read(progressProvider.notifier);
             await progressNotifier.syncWithHealth(years: 1).timeout(
-              const Duration(seconds: 2),
+              const Duration(seconds: 5),
               onTimeout: () => HealthSyncResult(uploadedCount: 0),
             );
             _updateProgress(0.85, 6); // Step 6: Almost ready... (after sync completes)
@@ -465,8 +476,10 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
             ),
           ),
 
-          // Icon with glow
+          // Image with glow (with error handling)
           Container(
+            width: 80,
+            height: 80,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               boxShadow: [
@@ -477,10 +490,21 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                 ),
               ],
             ),
-            child: const Icon(
-              Icons.fitness_center,
-              size: 50,
-              color: Colors.white,
+            child: ClipOval(
+              child: Image.asset(
+                'assets/images/loading.png',
+                width: 80,
+                height: 80,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  // Fallback to icon if image fails to load
+                  return const Icon(
+                    Icons.fitness_center,
+                    size: 50,
+                    color: Colors.white,
+                  );
+                },
+              ),
             ),
           ),
         ],

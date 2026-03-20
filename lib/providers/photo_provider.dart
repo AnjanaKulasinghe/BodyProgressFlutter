@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:body_progress/models/photo_metadata.dart';
@@ -121,11 +122,24 @@ class PhotoNotifier extends StateNotifier<PhotoState> {
   Future<void> loadPhotos() async {
     final uid = _uid;
     if (uid == null) return;
+    
+    debugPrint('[PhotoProvider] Loading photos for uid: $uid');
+    
     state = state.copyWith(isLoading: true);
     try {
-      final photos = await _firestoreService.getPhotoMetadata(uid);
+      final photos = await _firestoreService.getPhotoMetadata(uid).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          debugPrint('[PhotoProvider] getPhotoMetadata timeout after 15s, returning empty list');
+          return <PhotoMetadata>[];
+        },
+      );
+      
+      debugPrint('[PhotoProvider] Loaded ${photos.length} photos');
+      
       state = state.copyWith(photos: photos, isLoading: false, clearError: true);
     } catch (e) {
+      debugPrint('[PhotoProvider] loadPhotos error: $e');
       state = state.copyWith(isLoading: false, errorMessage: e.toString(), showingAlert: true);
     }
   }

@@ -209,8 +209,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<bool> hasUserProfile() async {
     final uid = state.user?.uid;
-    if (uid == null) return false;
-    return _firestoreService.hasUserProfile(uid);
+    if (uid == null) {
+      return false;
+    }
+    try {
+      final result = await _firestoreService.hasUserProfile(uid).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          return false;
+        },
+      );
+      return result;
+    } catch (e) {
+      return false;
+    }
   }
 
   Future<UserProfile?> getUserProfile() async {
@@ -222,35 +234,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Delete account with optional re-authentication (password required for email/password accounts)
   Future<void> deleteAccount({String? password}) async {
     try {
-      print('🗑️ Starting account deletion...');
       state = state.copyWith(isLoading: true);
       
       final uid = state.user?.uid;
       if (uid == null) {
         throw Exception('No authenticated user to delete');
       }
-      print('🗑️ User ID: $uid');
       
       // Re-authenticate if password provided (for email/password users)
       if (password != null && password.isNotEmpty) {
-        print('🗑️ Re-authenticating with password...');
         await _authService.reauthenticateWithPassword(password);
-        print('✅ Re-authentication successful');
       }
       
       // Delete all user data from Firestore
-      print('🗑️ Deleting user data from Firestore...');
       await _firestoreService.batchDeleteUserData(uid);
-      print('✅ Firestore data deleted');
       
       // Delete the Firebase Auth account
-      print('🗑️ Deleting Firebase Auth account...');
       await _authService.deleteAccount();
-      print('✅ Account deleted successfully');
       
       state = state.copyWith(isLoading: false, clearError: true);
     } catch (e) {
-      print('❌ Delete account error: $e');
       state = state.copyWith(isLoading: false);
       _setError('Failed to delete account: ${e.toString()}');
       rethrow;

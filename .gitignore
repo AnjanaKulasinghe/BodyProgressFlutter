@@ -48,3 +48,25 @@ app.*.map.json
 /android/key.properties
 *.jks
 *.keystore
+
+# iOS specific
+**/ios/Pods/
+**/ios/Podfile.lock
+**/ios/.symlinks/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/build/
+**/ios/.DS_Store
+
+# Android specific
+**/android/.gradle/
+**/android/gradle/
+**/android/local.properties
+**/android/captures/
+**/android/build/
+**/android/.cxx/
+
+# Flutter generated
+.flutter-plugins
+.packages

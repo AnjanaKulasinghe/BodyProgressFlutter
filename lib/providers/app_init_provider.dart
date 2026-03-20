@@ -36,7 +36,9 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
 
   /// Initialize all app data - call this once when user logs in or app starts with authenticated user
   Future<void> initializeAppData() async {
-    if (state.isInitialized || state.isLoading) return;
+    if (state.isInitialized || state.isLoading) {
+      return;
+    }
 
     state = state.copyWith(isLoading: true);
     
@@ -50,7 +52,7 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
       // Load all data in parallel for maximum speed
       await Future.wait([
         _ref.read(profileProvider.notifier).loadProfile(),
-        _ref.read(progressProvider.notifier).loadAndCacheBodyStats().then((_) {}),
+        _ref.read(progressProvider.notifier).loadAndCacheBodyStats(),
         _ref.read(photoProvider.notifier).loadPhotos(),
       ], eagerError: false); // Continue even if some operations fail
       
@@ -62,7 +64,6 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
 
       state = state.copyWith(isInitialized: true, isLoading: false);
     } catch (e) {
-      print('App initialization error: $e');
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),

@@ -85,7 +85,6 @@ GoRouter createRouter(WidgetRef ref) {
         // If trying to access protected routes without profile, redirect to profile setup
         return AppRoutes.profileSetup;
       } catch (e) {
-        print('Router redirect error: $e');
         return AppRoutes.auth;
       }
     },

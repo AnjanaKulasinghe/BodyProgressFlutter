@@ -25,6 +25,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   late AnimationController _rotationController;
   late AnimationController _pulseController;
   late AnimationController _gradientController;
+  late AnimationController _progressController;
   
   late Animation<double> _logoScale;
   late Animation<double> _logoOpacity;
@@ -32,10 +33,13 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   late Animation<double> _titleOpacity;
   late Animation<double> _rotation;
   late Animation<double> _pulse;
+  late Animation<double> _animatedProgress;
 
   double _loadingProgress = 0.0;
+  double _targetProgress = 0.0;
   int _currentStepIndex = 0;
   String? _slowNetworkMessage;
+  bool _loadingComplete = false;
   
   final List<String> _loadingSteps = [
     'Initializing app...',
@@ -52,7 +56,20 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
     super.initState();
     _setupAnimations();
     _startAnimations();
-    _startLoading();
+    
+    // Ensure widget is fully mounted and first frame is rendered before starting async work
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _startLoading();
+      }
+    });
+    
+    // Global safety timeout - force navigation after 15 seconds if still stuck
+    Future.delayed(const Duration(seconds: 15), () {
+      if (mounted && !_loadingComplete) {
+        context.go(AppRoutes.home);
+      }
+    });
   }
 
   void _setupAnimations() {
@@ -97,6 +114,21 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
+    
+    // Progress animation - syncs percentage text with bar
+    _progressController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _animatedProgress = Tween<double>(begin: 0.0, end: 0.0).animate(
+      CurvedAnimation(parent: _progressController, curve: Curves.easeOut),
+    )..addListener(() {
+      if (mounted) {
+        setState(() {
+          _loadingProgress = _animatedProgress.value;
+        });
+      }
+    });
   }
 
   void _startAnimations() {
@@ -109,6 +141,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
     _rotationController.dispose();
     _pulseController.dispose();
     _gradientController.dispose();
+    _progressController.dispose();
     super.dispose();
   }
 
@@ -121,17 +154,14 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
         final healthService = ref.read(progressProvider.notifier).healthService;
         final hasPermission = await healthService.hasPermissions().timeout(
           const Duration(seconds: 2),
-          onTimeout: () {
-            print('⚠️  Health permission check timed out');
-            return false;
-          },
+          onTimeout: () => false,
         );
         if (hasPermission) {
           await prefs.setBool('healthPermissionGranted', true);
           healthPermissionGranted = true;
         }
       } catch (e) {
-        print('⚠️  Health permission check error: $e');
+        // Silently handle permission check errors
       }
     }
     
@@ -144,23 +174,29 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       await Future.delayed(const Duration(milliseconds: 800));
 
       final authState = ref.read(authProvider);
+      
       if (!authState.isAuthenticated || !authState.canProceed) {
-        if (mounted) context.go(AppRoutes.auth);
+        if (mounted) {
+          _loadingComplete = true;
+          context.go(AppRoutes.auth);
+        }
         return;
       }
 
-      _updateProgress(0.1, 0);
+      _updateProgress(0.1, 0); // Step 0: Initializing app...
 
-      // ══════════════════════════════════════════════════════════════════════
       // PARALLEL LOADING: Start all checks in background simultaneously
-      // ══════════════════════════════════════════════════════════════════════
-      
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => throw TimeoutException('SharedPreferences timeout'),
+      );
       final hasSeenTutorial = prefs.getBool('hasSeenTutorialOnDevice') ?? false;
       
-      // Start slow network warning timer (show after 5 seconds)
+      _updateProgress(0.2, 1); // Step 1: Loading user data...
+      
+      // Start slow network warning timer (show after 3 seconds)
       Timer? slowNetworkTimer;
-      slowNetworkTimer = Timer(const Duration(seconds: 5), () {
+      slowNetworkTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) {
           setState(() {
             _slowNetworkMessage = "We're experiencing slow network speeds.\nHang on, we're working as fast as possible to load all your data!";
@@ -175,55 +211,54 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
           : Future.value(false);
       final dataLoadFuture = ref.read(appInitProvider.notifier).initializeAppData();
 
-      _updateProgress(0.3, 1);
+      _updateProgress(0.3, 2); // Step 2: Syncing data...
 
-      // Wait for all critical data (with 12 second timeout for parallel operations)
+      // Wait for all critical data (with 8 second timeout for parallel operations)
       try {
         final results = await Future.wait([
           healthCheckFuture,
           hasProfileFuture,
           dataLoadFuture,
         ]).timeout(
-          const Duration(seconds: 12),
-          onTimeout: () {
-            print('⚠️  Parallel loading timed out after 12s');
-            return [false, false, null];
-          },
+          const Duration(seconds: 8),
+          onTimeout: () => [false, false, null],
         );
         
         final healthPermissionGranted = results[0] as bool;
         final hasProfile = results[1] as bool;
         
-        _updateProgress(0.6, 3);
-        print('🏥 Health permission: $healthPermissionGranted');
+        _updateProgress(0.5, 3); // Step 3: Loading stats...
+        
+        await Future.delayed(const Duration(milliseconds: 200)); // Small delay for smooth animation
+        _updateProgress(0.6, 4); // Step 4: Loading photos...
 
         // Optional: Quick health sync if permission granted (skip if taking too long)
         if (healthPermissionGranted) {
-          _updateProgress(0.7, 5);
+          _updateProgress(0.7, 5); // Step 5: Syncing health data...
           try {
             final progressNotifier = ref.read(progressProvider.notifier);
             await progressNotifier.syncWithHealth(years: 1).timeout(
               const Duration(seconds: 2),
-              onTimeout: () {
-                print('⏭️  Health sync skipped - taking too long');
-                return HealthSyncResult(uploadedCount: 0, skippedCount: 0);
-              },
+              onTimeout: () => HealthSyncResult(uploadedCount: 0),
             );
+            _updateProgress(0.85, 6); // Step 6: Almost ready... (after sync completes)
           } catch (e) {
-            print('⏭️  Health sync skipped: $e');
+            _updateProgress(0.85, 6); // Step 6: Almost ready... (even on error)
           }
+        } else {
+          _updateProgress(0.85, 6); // Step 6: Almost ready... (skip health sync)
         }
-
-        _updateProgress(0.9, 6);
 
         // Cancel slow network timer - loading complete!
         slowNetworkTimer?.cancel();
 
-        // Ensure minimum 5 seconds for smooth UX (avoid jarring quick flashes)
+        // Ensure minimum 3 seconds for smooth UX (avoid jarring quick flashes)
         final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-        final minLoadingMs = 5000;
+        final minLoadingMs = 3000;
+        
         if (elapsedMs < minLoadingMs) {
-          await Future.delayed(Duration(milliseconds: minLoadingMs - elapsedMs));
+          final remainingMs = minLoadingMs - elapsedMs;
+          await Future.delayed(Duration(milliseconds: remainingMs));
         }
 
         _updateProgress(1.0, 6);
@@ -231,6 +266,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
 
         // Navigate based on user flow
         if (mounted) {
+          _loadingComplete = true;
           if (!hasSeenTutorial && hasProfile) {
             context.go(AppRoutes.tutorial);
           } else {
@@ -239,30 +275,50 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
         }
         
       } catch (e) {
-        print('❌ Loading error: $e');
         slowNetworkTimer?.cancel();
         _updateProgress(0.8, 6);
         
         // Still ensure minimum time
         final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-        if (elapsedMs < 5000) {
-          await Future.delayed(Duration(milliseconds: 5000 - elapsedMs));
+        if (elapsedMs < 3000) {
+          await Future.delayed(Duration(milliseconds: 3000 - elapsedMs));
         }
         
-        if (mounted) context.go(AppRoutes.home);
+        if (mounted) {
+          _loadingComplete = true;
+          context.go(AppRoutes.home);
+        }
       }
     } catch (e) {
-      print('Loading screen error: $e');
-      if (mounted) context.go(AppRoutes.home);
+      if (mounted) {
+        _loadingComplete = true;
+        context.go(AppRoutes.home);
+      }
     }
   }
 
   void _updateProgress(double progress, int stepIndex) {
     if (!mounted) return;
+    
+    // Only move forward, never backwards
+    final newProgress = progress > _targetProgress ? progress : _targetProgress;
+    
     setState(() {
-      _loadingProgress = progress;
+      _targetProgress = newProgress;
       _currentStepIndex = stepIndex;
     });
+    
+    // Animate from current to target
+    _animatedProgress = Tween<double>(
+      begin: _loadingProgress,
+      end: newProgress,
+    ).animate(CurvedAnimation(
+      parent: _progressController,
+      curve: Curves.easeOut,
+    ));
+    
+    _progressController.reset();
+    _progressController.forward();
   }
 
   @override
@@ -466,6 +522,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   }
 
   Widget _buildProgressSection() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final progressBarWidth = screenWidth - 80; // Account for 40px padding on each side
+    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 40),
       child: Column(
@@ -487,8 +546,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                 Align(
                   alignment: Alignment.centerLeft,
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    width: MediaQuery.of(context).size.width * 0.8 * _loadingProgress,
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOut,
+                    width: (progressBarWidth * _loadingProgress).clamp(0.0, progressBarWidth),
                     height: 10,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
@@ -504,27 +564,6 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                     ),
                   ),
                 ),
-                // Shimmer dot at the end
-                if (_loadingProgress > 0 && _loadingProgress < 1)
-                  Positioned(
-                    left: MediaQuery.of(context).size.width * 0.8 * _loadingProgress - 48,
-                    top: -3,
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.white.withOpacity(0.8),
-                            blurRadius: 10,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),

@@ -115,10 +115,13 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
     final authState = _ref.read(authProvider);
     final uid = authState.user?.uid;
     final user = authState.user;
-    if (uid == null || uid.isEmpty) return;
+    if (uid == null || uid.isEmpty) {
+      return;
+    }
 
     try {
       final hasProfile = await _firestoreService.hasUserProfile(uid);
+      
       if (!hasProfile) {
         // Pre-populate from Firebase Auth - RESET all other fields to defaults
         state = ProfileState(
@@ -150,7 +153,6 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
         state = state.copyWith(isLoading: false, isNewProfile: true);
       }
     } catch (e) {
-      print('loadProfile error: $e');
       state = state.copyWith(
         isLoading: false, 
         errorMessage: 'Error loading profile: ${e.toString()}', 
@@ -236,9 +238,7 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
             createdAt: DateTime.now(),
           );
           await _firestoreService.saveBodyStats(initialStats);
-          print('Created initial body stats entry with BMI: ${bmi.toStringAsFixed(1)}');
         } catch (e) {
-          print('Error creating initial stats: $e');
           // Non-fatal - profile still saved successfully
         }
       }

@@ -109,11 +109,16 @@ class ProgressNotifier extends StateNotifier<ProgressState> {
   // ── Cache Management ──────────────────────────────────────────────────────
 
   Future<Duration> loadAndCacheBodyStats() async {
+    print('🟠 [ProgressProvider] >>> loadAndCacheBodyStats - START <<<');
     final uid = _uid;
-    if (uid == null) return Duration.zero;
+    if (uid == null) {
+      print('🟠 [ProgressProvider] uid is null, returning Duration.zero');
+      return Duration.zero;
+    }
     final start = DateTime.now();
     
-    debugPrint('[ProgressProvider] Loading body stats for uid: $uid');
+    print('🟠 [ProgressProvider] Loading body stats for uid: $uid');
+    print('🟠 [ProgressProvider] About to call getBodyStats with 15s timeout...');
     
     // Use smaller limit on cold start to prevent hanging
     final stats = await _firestoreService.getBodyStats(uid, limit: 500).timeout(

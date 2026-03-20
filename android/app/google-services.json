@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1025310020594",
+    "project_id": "bodyprogressapp-24a1a",
+    "storage_bucket": "bodyprogressapp-24a1a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1025310020594:android:56422226eafacc96d6116b",
+        "android_client_info": {
+          "package_name": "com.koungagames.body_progress"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCL3Y7xXaRH3OJK56on2KNJ_sWPKko9O-o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

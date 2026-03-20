@@ -77,8 +77,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final FirestoreService _firestoreService = FirestoreService();
   final Ref _ref;
 
-  AuthNotifier(this._ref) : super(const AuthState()) {
+  // Initialize with current user from _authService instance
+  AuthNotifier(this._ref) : super(AuthState(user: FirebaseAuth.instance.currentUser)) {
+    print('🔴 [AuthNotifier] Initialized with user: ${FirebaseAuth.instance.currentUser?.uid}');
     _authService.authStateChanges.listen((user) {
+      print('🔴 [AuthNotifier] Auth state changed: ${user?.uid}');
       state = state.copyWith(user: user);
     });
   }

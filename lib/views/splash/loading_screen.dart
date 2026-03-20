@@ -209,18 +209,29 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       });
       
       // Start all heavy operations in parallel
-      debugPrint('[LoadingScreen] Starting parallel operations...');
+      print('🔵 [LoadingScreen] About to start parallel operations...');
+      
+      print('🔵 [LoadingScreen] Creating healthCheckFuture...');
       final healthCheckFuture = _checkHealthPermission(prefs);
+      print('🔵 [LoadingScreen] healthCheckFuture created');
+      
+      print('🔵 [LoadingScreen] Creating hasProfileFuture...');
       final hasProfileFuture = authState.user?.uid != null 
           ? ref.read(authProvider.notifier).hasUserProfile()
           : Future.value(false);
+      print('🔵 [LoadingScreen] hasProfileFuture created');
+      
+      print('🔵 [LoadingScreen] About to create dataLoadFuture...');
       final dataLoadFuture = ref.read(appInitProvider.notifier).initializeAppData();
+      print('🔵 [LoadingScreen] dataLoadFuture created');
 
+      print('🔵 [LoadingScreen] Calling _updateProgress(0.3, 2)...');
       _updateProgress(0.3, 2); // Step 2: Syncing data...
+      print('🔵 [LoadingScreen] _updateProgress(0.3, 2) completed');
 
       // Wait for all critical data (increased timeout for production/release builds)
       try {
-        debugPrint('[LoadingScreen] Waiting for parallel operations (20s timeout)...');
+        print('🔵 [LoadingScreen] About to wait for parallel operations (20s timeout)...');
         final results = await Future.wait([
           healthCheckFuture,
           hasProfileFuture,

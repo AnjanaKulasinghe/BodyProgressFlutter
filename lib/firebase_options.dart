@@ -30,8 +30,8 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAqRKs7JeF8h54LHnjdJPigOCDo_--UFQQ', 
-    appId: '1:1025310020594:android:firebase', // Placeholder - Needs actual Android App ID
+    apiKey: 'AIzaSyCL3Y7xXaRH3OJK56on2KNJ_sWPKko9O-o', 
+    appId: '1:1025310020594:android:56422226eafacc96d6116b',
     messagingSenderId: '1025310020594',
     projectId: 'bodyprogressapp-24a1a',
     storageBucket: 'bodyprogressapp-24a1a.firebasestorage.app',

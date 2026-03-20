@@ -113,14 +113,16 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
   // ── Load ──────────────────────────────────────────────────────────────────
 
   Future<void> loadProfile() async {
+    print('🟡 [ProfileProvider] >>> loadProfile - START <<<');
     final authState = _ref.read(authProvider);
     final uid = authState.user?.uid;
     final user = authState.user;
     if (uid == null || uid.isEmpty) {
+      print('🟡 [ProfileProvider] uid is null or empty, returning');
       return;
     }
 
-    debugPrint('[ProfileProvider] Loading profile for uid: $uid');
+    print('🟡 [ProfileProvider] Loading profile for uid: $uid');
 
     try {
       final hasProfile = await _firestoreService.hasUserProfile(uid);

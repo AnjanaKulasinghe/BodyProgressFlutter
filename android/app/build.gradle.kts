@@ -50,6 +50,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -66,3 +67,6 @@ dependencies {
 flutter {
     source = "../.."
 }
+
+// Apply Google Services plugin at the end
+apply(plugin = "com.google.gms.google-services")

@@ -120,10 +120,15 @@ class PhotoNotifier extends StateNotifier<PhotoState> {
   // ── Load Photos ───────────────────────────────────────────────────────────
 
   Future<void> loadPhotos() async {
+    print('🟣 [PhotoProvider] >>> loadPhotos - START <<<');
     final uid = _uid;
-    if (uid == null) return;
+    if (uid == null) {
+      print('🟣 [PhotoProvider] uid is null, returning');
+      return;
+    }
     
-    debugPrint('[PhotoProvider] Loading photos for uid: $uid');
+    print('🟣 [PhotoProvider] Loading photos for uid: $uid');
+    print('🟣 [PhotoProvider] About to call getPhotoMetadata with 15s timeout...');
     
     state = state.copyWith(isLoading: true);
     try {

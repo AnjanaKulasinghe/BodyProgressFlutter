@@ -51,18 +51,32 @@ class AppInitNotifier extends StateNotifier<AppInitState> {
       }
 
       // Load all data in parallel for maximum speed
-      debugPrint('[AppInit] Starting parallel data load (profile, stats, photos)...');
+      print('🟢 [AppInit] >>> initializeAppData - START <<<');
+      print('🟢 [AppInit] About to create profile future...');
+      final profileFuture = _ref.read(profileProvider.notifier).loadProfile().then((_) {
+        print('🟢 [AppInit] ✓ Profile loaded');
+      });
+      print('🟢 [AppInit] Profile future created');
+      
+      print('🟢 [AppInit] About to create stats future...');
+      final statsFuture = _ref.read(progressProvider.notifier).loadAndCacheBodyStats().then((_) {
+        print('🟢 [AppInit] ✓ Body stats loaded');
+      });
+      print('🟢 [AppInit] Stats future created');
+      
+      print('🟢 [AppInit] About to create photos future...');
+      final photosFuture = _ref.read(photoProvider.notifier).loadPhotos().then((_) {
+        print('🟢 [AppInit] ✓ Photos loaded');
+      });
+      print('🟢 [AppInit] Photos future created');
+      
+      print('🟢 [AppInit] All futures created, now awaiting Future.wait...');
       await Future.wait([
-        _ref.read(profileProvider.notifier).loadProfile().then((_) {
-          debugPrint('[AppInit] ✓ Profile loaded');
-        }),
-        _ref.read(progressProvider.notifier).loadAndCacheBodyStats().then((_) {
-          debugPrint('[AppInit] ✓ Body stats loaded');
-        }),
-        _ref.read(photoProvider.notifier).loadPhotos().then((_) {
-          debugPrint('[AppInit] ✓ Photos loaded');
-        }),
-      ], eagerError: false); // Continue even if some operations fail
+        profileFuture,
+        statsFuture,
+        photosFuture,
+      ], eagerError: false);
+      print('🟢 [AppInit] Future.wait completed!'); // Continue even if some operations fail
       
       debugPrint('[AppInit] All parallel operations completed');
       

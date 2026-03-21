@@ -123,6 +123,8 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
     }
 
     print('🟡 [ProfileProvider] Loading profile for uid: $uid');
+    print('🟡 [ProfileProvider] User displayName: ${user?.displayName}');
+    print('🟡 [ProfileProvider] User email: ${user?.email}');
 
     try {
       final hasProfile = await _firestoreService.hasUserProfile(uid);
@@ -131,11 +133,16 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
       
       if (!hasProfile) {
         // Pre-populate from Firebase Auth - RESET all other fields to defaults
+        final displayName = user?.displayName ?? '';
+        final email = user?.email ?? '';
+        
+        debugPrint('[ProfileProvider] Creating new profile state - name: "$displayName", email: "$email"');
+        
         state = ProfileState(
           dateOfBirth: DateTime.now().subtract(const Duration(days: 365 * 25)),
           isNewProfile: true,
-          name: user?.displayName ?? '',
-          email: user?.email ?? '',
+          name: displayName,
+          email: email,
         );
         debugPrint('[ProfileProvider] Created new profile state');
         return;

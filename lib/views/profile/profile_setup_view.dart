@@ -202,6 +202,9 @@ class _BasicInfoStep extends StatelessWidget {
     final hasPrefilledName = state.name.isNotEmpty && state.isNewProfile;
     final hasPrefilledEmail = state.email.isNotEmpty && state.isNewProfile;
     
+    // For Apple Sign In on subsequent logins, name might not be provided
+    final needsNameEntry = !hasPrefilledName && state.isNewProfile;
+    
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -216,8 +219,11 @@ class _BasicInfoStep extends StatelessWidget {
             label: 'Full Name', 
             initialValue: state.name, 
             onChanged: notifier.setName,
-            enabled: !hasPrefilledName,
-            helperText: hasPrefilledName ? 'Provided by Sign in with Apple' : null,
+            helperText: hasPrefilledName 
+                ? 'Auto-filled from your account (you can edit if needed)' 
+                : needsNameEntry 
+                    ? 'Please enter your full name'
+                    : null,
           ),
           const SizedBox(height: 16),
           _FormField(
@@ -646,9 +652,14 @@ class _FormFieldState extends State<_FormField> {
   @override
   void didUpdateWidget(_FormField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Update controller if initialValue changes and field is empty
-    if (widget.initialValue != oldWidget.initialValue && _controller.text.isEmpty) {
-      _controller.text = widget.initialValue;
+    // Update controller if initialValue has changed from what's currently in the controller
+    // This handles the case where auth data loads after the widget is built
+    if (widget.initialValue != oldWidget.initialValue) {
+      // Only auto-update if the controller is still empty or matches the old initial value
+      // This prevents overwriting user edits
+      if (_controller.text.isEmpty || _controller.text == oldWidget.initialValue) {
+        _controller.text = widget.initialValue;
+      }
     }
   }
 

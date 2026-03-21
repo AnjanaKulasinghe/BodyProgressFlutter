@@ -44,7 +44,9 @@ class AuthService {
       email: email.trim(),
       password: password,
     );
+    // Update display name and reload to ensure it's reflected in auth state
     await cred.user?.updateDisplayName(name.trim());
+    await cred.user?.reload();
     // Email verification disabled for simpler user experience
     // await cred.user?.sendEmailVerification();
     return cred;
@@ -116,12 +118,22 @@ class AuthService {
     
     // Update display name from Apple-provided data if available
     final user = userCredential.user;
-    if (user != null && user.displayName == null) {
+    if (user != null) {
       final givenName = appleCredential.givenName;
       final familyName = appleCredential.familyName;
+      
+      // Apple only provides name on first sign-in, update if we have it
       if (givenName != null && familyName != null) {
         final fullName = '$givenName $familyName'.trim();
-        await user.updateDisplayName(fullName);
+        if (fullName.isNotEmpty) {
+          await user.updateDisplayName(fullName);
+          // Reload user to ensure displayName is updated in the auth state
+          await user.reload();
+        }
+      } else if (user.displayName == null || user.displayName!.isEmpty) {
+        // Apple didn't provide name (subsequent login) and user has no displayName
+        // This is expected behavior - we'll handle it in the profile setup
+        debugPrint('[AuthService] Apple Sign In: Name not provided (likely subsequent login)');
       }
     }
     
